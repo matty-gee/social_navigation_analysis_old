@@ -2,11 +2,8 @@
 
 ## Installation
 
-### Installation
-
+Developed in python
 Use conda to set up a new isolated environment to install requirements.
-Use the package manager [pip](https://pip.pypa.io/en/stable/) to install fmriprep-docker.
-Use conda to install dcm2niix.
 
 ```bash
 pip install --user --upgrade git+
