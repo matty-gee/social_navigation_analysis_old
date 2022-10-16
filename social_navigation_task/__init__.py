@@ -18,6 +18,7 @@ module           --- Brief description
 
 import preprocess
 import info
+import utils
 
 ## list all submodules available and version
 # __all__ = ['datasets', 'decoding', 'decomposition', 'connectome',

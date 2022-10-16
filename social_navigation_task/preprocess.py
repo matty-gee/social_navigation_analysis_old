@@ -1,18 +1,13 @@
-import os, sys, glob, warnings, math, patsy, csv
+import os, sys, glob, warnings, re, math, patsy, csv
+from pathlib import Path
+import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
-import re
-
-import matplotlib.pyplot as plt
-from scipy import ndimage
-from scipy.stats import zscore
-from scipy.spatial import ConvexHull
-from sk.feature_extraction import image
-from sk.cluster import spectral_clustering
-from PIL import Image
-from pathlib import Path
-
+import scipy as sp 
+import sklearn as sk
 import pycircstat
+import shapely
+from PIL import Image
 
 pkg_dir = str(Path(__file__).parent.absolute())
 from info import *
@@ -205,13 +200,13 @@ def get_dot_coords(img, plot=False):
         
         # binarize image 
         binary_img = (img[:,:,1] > 0) * 1 # 3d -> 2d 
-        erod_img   = ndimage.binary_erosion(binary_img, iterations=3) # erode to get rid of specks
-        recon_img  = ndimage.binary_propagation(erod_img, mask=erod_img) * 1 # fill in 
+        erod_img   = sp.ndimage.binary_erosion(binary_img, iterations=3) # erode to get rid of specks
+        recon_img  = sp.ndimage.binary_propagation(erod_img, mask=erod_img) * 1 # fill in 
 
         # segment image
         # https://scipy-lectures.org/advanced/image_processing/auto_examples/plot_spectral_clustering.html#sphx-glr-advanced-image-processing-auto-examples-plot-spectral-clustering-py
         # Convert the image into a graph with the value of the gradient on the edges
-        graph = image.img_to_graph(binary_img, mask=recon_img.astype(bool))
+        graph = sk.feature_extraction.image.img_to_graph(binary_img, mask=recon_img.astype(bool))
 
         # Take a decreasing function of the gradient: we take it weakly
         # dependant from the gradient the segmentation is close to a voronoi
@@ -219,7 +214,7 @@ def get_dot_coords(img, plot=False):
 
         try: 
              # Force the solver to be arpack, since amg is numerically unstable
-            labels   = spectral_clustering(graph, n_clusters=4)
+            labels   = sk.cluster.spectral_clustering(graph, n_clusters=4)
             label_im = -np.ones(binary_img.shape)
             label_im[recon_img.astype(bool)] = labels
 
@@ -507,19 +502,18 @@ def compute_behavior(file_path, out_dir=None):
             # in 3d
             X = behavior.loc[:t, [f'affil_coord{sx}', f'power_coord{sx}', 'char_decision_num']].values
 
-            try:    vol = ConvexHull(X).volume
+            try:    vol = sp.spatial.ConvexHull(X).volume
             except: vol = np.nan
 
             # in 2d
             try:    
-
-                shape = ConvexHull(X[:,0:2])
+                shape = sp.spatial.ConvexHull(X[:,0:2])
                 perim = shape.area # perimeter
                 area  = shape.volume  # area
-                poly  = Polygon(X[:,0:2][shape.vertices]) 
+                poly  = shapely.geometry.Polygon(X[:,0:2][shape.vertices]) 
                 overlap = []
                 for q, C in quadrants.items(): # overlap w/ quadrants
-                    q = Polygon(C[ConvexHull(C).vertices]) 
+                    q = shapely.geometry.Polygon(C[sp.spatial.ConvexHull(C).vertices]) 
                     overlap.append(poly.intersection(q).area/poly.area)
             except: 
 
