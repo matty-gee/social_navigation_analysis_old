@@ -544,9 +544,6 @@ def summarize_behavior(file_paths, out_dir=None):
     
     if out_dir is None: 
         out_dir = Path(f'{os.getcwd()}/preprocessed_behavior')
-    else: 
-        if 'preprocessed_behavior' not in out_dir:
-            out_dir = Path(f'{out_dir}/preprocessed_behavior')
     if not os.path.exists(out_dir): 
         os.mkdir(out_dir)
 
@@ -554,7 +551,7 @@ def summarize_behavior(file_paths, out_dir=None):
 
     file_paths = sorted((f for f in file_paths if (not f.startswith(".")) & ("~$" not in f)), key=str.lower) # ignore hidden files & sort alphabetically
     for s, file_path in enumerate(file_paths):
-        print(f'Preprocessing {s+1} of {len(file_paths)}', end='\r')
+        print(f'Summarizing {s+1} of {len(file_paths)}', end='\r')
 
         ### load in data ###
         file_path = Path(file_path)
@@ -593,7 +590,7 @@ def summarize_behavior(file_paths, out_dir=None):
         summaries.append(summary)
 
     summary = pd.concat(summaries)
-    summary.to_excel(Path(f'{out_dir}/SNT_summary_n{summary.shape[0]}.xlsx'), index=False)
+    summary.to_excel(Path(f'{out_dir}/SNT-behavior_n{summary.shape[0]}.xlsx'), index=False)
 
 ##########################################################################################
 # compute mvpa 
