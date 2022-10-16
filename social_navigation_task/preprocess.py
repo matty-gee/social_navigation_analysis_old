@@ -603,7 +603,7 @@ def get_rdv_trials(trial_ixs, rdm_size=63):
     rdm  = np.zeros((rdm_size, rdm_size))
 
     # fill up a dummy rdm with the rdm ixs
-    rdm_ixs = combos(trial_ixs)
+    rdm_ixs = combos(trial_ixs, k=2)
     for i in rdm_ixs: 
         rdm[i[0],i[1]] = 1
         rdm[i[1],i[0]] = 1
@@ -636,7 +636,7 @@ def get_char_rdv(char_int, trial_ixs=None, rdv_to_mask=None):
     return char_rdv
 
 
-def get_rsa_snt_covs(metric='euclidean', trial_ixs=None):
+def get_ctl_rdvs(metric='euclidean', trial_ixs=None):
     
     # covariates: same across everyone 
     # maybe just store it somehwerre and grab
@@ -690,12 +690,6 @@ def compute_rdvs(file_path, metric='euclidean', output_all=True, out_dir=None):
     elif file_path.suffix == '.xls': behavior_ = pd.read_excel(file_path)
     elif file_path.suffix == '.csv': behavior_ = pd.read_csv(file_path)
 
-    ## calculate rdvs
-    # behavioral controls: RT & BP (add to the existing ctl_rdvs df)
-    ctl_rdvs = get_rsa_snt_covs(metric)
-    ctl_rdvs.loc[:,'reaction_time'] = ut_vec_pw_dist(np.nan_to_num(behavior_['reaction_time'], 0))
-    ctl_rdvs.loc[:,'button_press']  = ut_vec_pw_dist(np.array(behavior_['button_press']))
-
     # output all the decision type models?
     if output_all: 
         suffixes = flatten_nested_lists([[f'{wt}{dt}' for dt in ['','_prev','_cf'] for wt in ['', '_linear-decay', '_expon-decay']]]) 
@@ -712,7 +706,7 @@ def compute_rdvs(file_path, metric='euclidean', output_all=True, out_dir=None):
             decisions = np.sum(behav[[f'affil{sx}',f'power{sx}']],1)
             coords    = behav[[f'affil_coord{sx}',f'power_coord{sx}']].values
 
-            rdvs = get_rsa_snt_covs(trial_ixs=behav.index)
+            rdvs = get_ctl_rdvs(trial_ixs=behav.index)
             rdvs.loc[:,'reaction_time'] = ut_vec_pw_dist(np.nan_to_num(behav['reaction_time'], 0))
             rdvs.loc[:,'button_press']  = ut_vec_pw_dist(np.array(behav['button_press']))
 
@@ -756,5 +750,5 @@ def compute_rdvs(file_path, metric='euclidean', output_all=True, out_dir=None):
             rdvs.loc[:,'decision_direction'] = direction_rdv
 
             # output
-            rdvs.to_excel(Path(f'{out_dir}/snt_{sub_id}{sx}_rdvs.xlsx'), index=False)
+            rdvs.to_excel(Path(f'{out_dir}/snt_{sub_id}{outname}_rdvs.xlsx'), index=False)
   
