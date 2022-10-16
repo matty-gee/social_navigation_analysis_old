@@ -16,8 +16,10 @@ pkg_dir = str(Path(__file__).parent.absolute())
 from info import *
 from utils import *
 
+from toolbox.circ_stats import * 
+from toolbox.matrices import * 
+from toolbox.utils import *
 
-from toolbox import * 
 
 ##########################################################################################
 # parse snt logs, jsons 
