@@ -17,6 +17,7 @@ from info import *
 from utils import *
 
 from toolbox.circ_stats import * 
+from toolbox.math import * 
 from toolbox.matrices import * 
 from toolbox.utils import *
 
@@ -306,7 +307,7 @@ def define_char_coords(img):
 # compute behavioral variables
 ##########################################################################################
 
-def shift_down(arr, by=1, replace=0):
+def _shift_down(arr, by=1, replace=0):
     padded = np.ones_like(arr) * replace
     padded[by:] = np.array(arr)[0:-by] # replace 
     return padded
@@ -407,7 +408,7 @@ def compute_behavior(file_path, out_dir=None):
 
             ### previous decisions & coordinates
             # - eg, if on each trial the subj represents the last chosen decision/coordinates
-            shifted_decisions_w = shift_down(decisions_w, by=1) 
+            shifted_decisions_w = _shift_down(decisions_w, by=1) 
             behavior.loc[ixs, [f'affil{wt}_prev', f'power{wt}_prev']] = shifted_decisions_w
             behavior.loc[ixs, [f'affil_coord{wt}_prev', f'power_coord{wt}_prev']] = np.cumsum(shifted_decisions_w, 0)
 
@@ -600,9 +601,8 @@ def summarize_behavior(file_paths, out_dir=None):
 
 def get_rdv_trials(trial_ixs, rdm_size=63):
 
-    rdm  = np.zeros((rdm_size, rdm_size))
-
     # fill up a dummy rdm with the rdm ixs
+    rdm  = np.zeros((rdm_size, rdm_size))
     rdm_ixs = combos(trial_ixs, k=2)
     for i in rdm_ixs: 
         rdm[i[0],i[1]] = 1
