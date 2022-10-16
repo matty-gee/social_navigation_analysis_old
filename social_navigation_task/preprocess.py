@@ -7,20 +7,16 @@ import matplotlib.pyplot as plt
 from scipy import ndimage
 from scipy.stats import zscore
 from scipy.spatial import ConvexHull
-from sklearn.feature_extraction import image
-from sklearn.cluster import spectral_clustering
+from sk.feature_extraction import image
+from sk.cluster import spectral_clustering
 from PIL import Image
 from pathlib import Path
 
+import pycircstat
+
 pkg_dir = str(Path(__file__).parent.absolute())
 from info import *
-from utils import *
-
-from toolbox.circ_stats import * 
-from toolbox.math import * 
-from toolbox.matrices import * 
-from toolbox.utils import *
-
+import utils
 
 ##########################################################################################
 # parse snt logs, jsons 
@@ -392,8 +388,8 @@ def compute_behavior(file_path, out_dir=None):
         # different decision weighting schemes
         nt = len(decisions) 
         constant    = np.ones(nt)[:,None] # standard weighting with a constant
-        linear      = linear_decay(1, 1/nt, nt)[:,None]
-        exponential = exponential_decay(1, 1/nt, nt)[:,None]
+        linear      = utils.linear_decay(1, 1/nt, nt)[:,None]
+        exponential = utils.exponential_decay(1, 1/nt, nt)[:,None]
         
         for wt, w in {'':constant, '_linear-decay':linear, '_expon-decay':exponential}.items():
 
@@ -446,9 +442,9 @@ def compute_behavior(file_path, out_dir=None):
                 behavior.loc[ixs, [f'affil_consistency{wt}{dt}', f'power_consistency{wt}{dt}']] = (np.abs(cum_mean) - minmax[0]) / (minmax[1] - minmax[0])
 
                 # 2d consistency = decision vector length, scaled by min and max possible vector lengths
-                min_r = np.array([l2_norm(v) for v in minmax[0]])
-                max_r = np.array([l2_norm(v) for v in minmax[1]])
-                r = np.array([l2_norm(v) for v in cum_mean])
+                min_r = np.array([np.linalg.norm(v) for v in minmax[0]])
+                max_r = np.array([np.linalg.norm(v) for v in minmax[1]])
+                r = np.array([np.linalg.norm(v) for v in cum_mean])
                 behavior.loc[ixs, f'consistency{wt}{dt}'] = (r - min_r) / (max_r - min_r)
 
                 ### multi-dimensional: angles & distances ###
@@ -489,11 +485,11 @@ def compute_behavior(file_path, out_dir=None):
                         ref = ref - ori
 
                         # angle between ori-poi & ori-ref
-                        behavior.loc[ixs, f'{ot}{ndim}d_angle{wt}{dt}'] = calculate_angle(poi, ref, direction=drn) # outputs radians
+                        behavior.loc[ixs, f'{ot}{ndim}d_angle{wt}{dt}'] = utils.calculate_angle(poi, ref, direction=drn) # outputs radians
 
                         ## distances from ori-poi
                         if ndim == 2: 
-                            behavior.loc[ixs, f'{ot}_distance{wt}{dt}'] = [l2_norm(v) for v in poi] # l2 norm is euclidean distance from ori
+                            behavior.loc[ixs, f'{ot}_distance{wt}{dt}'] = [np.linalg.norm(v) for v in poi] # l2 norm is euclidean distance from ori
 
     ######################################
     ## variables across all characters ###
@@ -563,7 +559,7 @@ def summarize_behavior(file_paths, out_dir=None):
         elif file_path.suffix == '.csv': behavior = pd.read_csv(file_path)
 
         sub_id = file_path.stem.split('_')[1] # expects a filename like 'snt_subid_*'
-        assert is_numeric(sub_id), 'Subject id isnt numeric; check that filename has this pattern: "snt_subid*.xlsx"'
+        assert utils.is_numeric(sub_id), 'Subject id isnt numeric; check that filename has this pattern: "snt_subid*.xlsx"'
 
         summary = pd.DataFrame()
         summary.loc[0, 'sub_id'] = sub_id
@@ -582,7 +578,7 @@ def summarize_behavior(file_paths, out_dir=None):
         # means of all trials
         for c,col in enumerate(cols):
             if 'angle' not in col: summary.loc[0, col + '_mean'] = np.mean(behavior[col])
-            else:                  summary.loc[0, col + '_mean'] = circ_mean(behavior[col])
+            else:                  summary.loc[0, col + '_mean'] = pycircstat.mean(behavior[col])
 
         # last trial only
         end_df = pd.DataFrame(behavior.loc[62,cols].values).T
@@ -603,11 +599,11 @@ def get_rdv_trials(trial_ixs, rdm_size=63):
 
     # fill up a dummy rdm with the rdm ixs
     rdm  = np.zeros((rdm_size, rdm_size))
-    rdm_ixs = combos(trial_ixs, k=2)
+    rdm_ixs = utils.combos(trial_ixs, k=2)
     for i in rdm_ixs: 
         rdm[i[0],i[1]] = 1
         rdm[i[1],i[0]] = 1
-    rdv = symm_mat_to_ut_vec(rdm)
+    rdv = utils.symm_mat_to_ut_vec(rdm)
     
     return (rdv == 1), np.where(rdv==1)[0] # boolean mask, ixs
 
@@ -623,7 +619,7 @@ def get_char_rdv(char_int, trial_ixs=None, rdv_to_mask=None):
     else:
         decisions = decision_trials
     
-    char_rdm = np.ones((decisions.shape[0], decisions.shape[0]))
+    # char_rdm = np.ones((decisions.shape[0], decisions.shape[0]))
     char_ixs = np.where(decisions['char_role_num'] == char_int)[0]
     char_rdv = get_rdv_trials(char_ixs, rdm_size=decisions.shape[0])[0] * 1
     
@@ -649,15 +645,15 @@ def get_ctl_rdvs(metric='euclidean', trial_ixs=None):
     cols = []
     
     # time-related drift rdms - continuous-ish
-    time_rdvs = np.vstack([ut_vec_pw_dist(np.array(decisions['cogent_onset'])) ** p for p in range(1,8)]).T
+    time_rdvs = np.vstack([utils.ut_vec_pw_dist(np.array(decisions['cogent_onset'])) ** p for p in range(1,8)]).T
     cols = cols + [f'time{t+1}' for t in range(time_rdvs.shape[1])]
 
     # narrative rdms - continuous-ish
-    narr_rdvs = np.vstack([ut_vec_pw_dist(decisions[col].values) for col in ['slide_num','scene_num','char_decision_num']]).T
+    narr_rdvs = np.vstack([utils.ut_vec_pw_dist(decisions[col].values) for col in ['slide_num','scene_num','char_decision_num']]).T
     cols = cols + ['slide','scene','familiarity']
 
     # dimension rdms - categorical 
-    dim_rdv = ut_vec_pw_dist(np.array((decisions['dimension'] == 'affil') * 1).reshape(-1,1), metric=metric) # diff or same dims?
+    dim_rdv = utils.ut_vec_pw_dist(np.array((decisions['dimension'] == 'affil') * 1).reshape(-1,1), metric=metric) # diff or same dims?
     dim_rdvs = []
     for dim in ['affil', 'power']: # isolate each dim
         dim_ixs = np.where(decisions['dimension'] == dim)[0]    
@@ -683,7 +679,7 @@ def compute_rdvs(file_path, metric='euclidean', output_all=True, out_dir=None):
 
     ### load in data ###
     sub_id = file_path.stem.split('_')[1] # expects a filename like 'snt_subid_*'
-    assert is_numeric(sub_id), 'Subject id isnt numeric; check that filename has this pattern: "snt_subid*.xlsx"'
+    assert utils.is_numeric(sub_id), 'Subject id isnt numeric; check that filename has this pattern: "snt_subid*.xlsx"'
 
     file_path = Path(file_path)
     if file_path.suffix == '.xlsx':  behavior_ = pd.read_excel(file_path, engine='openpyxl')
@@ -692,7 +688,7 @@ def compute_rdvs(file_path, metric='euclidean', output_all=True, out_dir=None):
 
     # output all the decision type models?
     if output_all: 
-        suffixes = flatten_nested_lists([[f'{wt}{dt}' for dt in ['','_prev','_cf'] for wt in ['', '_linear-decay', '_expon-decay']]]) 
+        suffixes = utils.flatten_nested_lists([[f'{wt}{dt}' for dt in ['','_prev','_cf'] for wt in ['', '_linear-decay', '_expon-decay']]]) 
     else: 
         suffixes = ''
         
@@ -707,8 +703,8 @@ def compute_rdvs(file_path, metric='euclidean', output_all=True, out_dir=None):
             coords    = behav[[f'affil_coord{sx}',f'power_coord{sx}']].values
 
             rdvs = get_ctl_rdvs(trial_ixs=behav.index)
-            rdvs.loc[:,'reaction_time'] = ut_vec_pw_dist(np.nan_to_num(behav['reaction_time'], 0))
-            rdvs.loc[:,'button_press']  = ut_vec_pw_dist(np.array(behav['button_press']))
+            rdvs.loc[:,'reaction_time'] = utils.ut_vec_pw_dist(np.nan_to_num(behav['reaction_time'], 0))
+            rdvs.loc[:,'button_press']  = utils.ut_vec_pw_dist(np.array(behav['button_press']))
 
             ######################################################
             # relative distances between locations
@@ -716,15 +712,15 @@ def compute_rdvs(file_path, metric='euclidean', output_all=True, out_dir=None):
             ######################################################
 
             metric = 'euclidean'
-            rdvs.loc[:,'place_2d']       = ut_vec_pw_dist(coords, metric=metric)
-            rdvs.loc[:,'place_affil']    = ut_vec_pw_dist(coords[:,0], metric=metric)
-            rdvs.loc[:,'place_power']    = ut_vec_pw_dist(coords[:,1], metric=metric)
-            rdvs.loc[:,'place_positive'] = ut_vec_pw_dist(np.sum(coords, 1), metric=metric)
+            rdvs.loc[:,'place_2d']       = utils.ut_vec_pw_dist(coords, metric=metric)
+            rdvs.loc[:,'place_affil']    = utils.ut_vec_pw_dist(coords[:,0], metric=metric)
+            rdvs.loc[:,'place_power']    = utils.ut_vec_pw_dist(coords[:,1], metric=metric)
+            rdvs.loc[:,'place_positive'] = utils.ut_vec_pw_dist(np.sum(coords, 1), metric=metric)
 
             #     # newer adds:
-            #     rdvs['place_2d_scaled', ut_vec_pw_dist(behavior[['affil_coord_scaled', 'power_coord_scaled']])) # dont zscore cuz already scaled
-            #     rdvs['place_2d_exp_decay', ut_vec_pw_dist(behavior[['affil_coord_exp-decay', 'power_coord_exp-decay']]))
-            #     rdvs['place_2d_exp_decay_scaled', ut_vec_pw_dist(behavior[['affil_coord_exp-decay_scaled', 'power_coord_exp-decay_scaled']]))
+            #     rdvs['place_2d_scaled', utils.ut_vec_pw_dist(behavior[['affil_coord_scaled', 'power_coord_scaled']])) # dont zscore cuz already scaled
+            #     rdvs['place_2d_exp_decay', utils.ut_vec_pw_dist(behavior[['affil_coord_exp-decay', 'power_coord_exp-decay']]))
+            #     rdvs['place_2d_exp_decay_scaled', utils.ut_vec_pw_dist(behavior[['affil_coord_exp-decay_scaled', 'power_coord_exp-decay_scaled']]))
 
             ######################################################
             # distances from ref points (poi - ref)
@@ -736,16 +732,16 @@ def compute_rdvs(file_path, metric='euclidean', output_all=True, out_dir=None):
 
                 V = coords - ori
 
-                rdvs.loc[:,f'{metric}_distance_{origin}'] = ut_vec_pw_dist(np.array([l2_norm(v) for v in V]), metric=metric)
-                rdvs.loc[:,f'angular_distance_{origin}']  = symm_mat_to_ut_vec(angular_distance(V)) 
-                rdvs.loc[:,f'cosine_distance_{origin}']   = symm_mat_to_ut_vec(cosine_distance(V))
+                rdvs.loc[:,f'{metric}_distance_{origin}'] = utils.ut_vec_pw_dist(np.array([np.linalg.norm(v) for v in V]), metric=metric)
+                rdvs.loc[:,f'angular_distance_{origin}']  = utils.symm_mat_to_ut_vec(utils.angular_distance(V)) 
+                rdvs.loc[:,f'cosine_distance_{origin}']   = utils.symm_mat_to_ut_vec(utils.cosine_distance(V))
 
             ######################################################
             # others
             ######################################################
 
             # decision directon: +1 or -1
-            direction_rdv = ut_vec_pw_dist(behav['decision'].values.reshape(-1,1))
+            direction_rdv = utils.ut_vec_pw_dist(behav['decision'].values.reshape(-1,1))
             direction_rdv[direction_rdv > 1] = 1 
             rdvs.loc[:,'decision_direction'] = direction_rdv
 
