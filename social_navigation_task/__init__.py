@@ -16,8 +16,8 @@ module           --- Brief description
 [By Matthew Schafer; github: @matty-gee; 2020ish]
 '''
 
-# if want to import functions directly: 
-# from .module import *
+import preprocess
+import info
 
 ## list all submodules available and version
 # __all__ = ['datasets', 'decoding', 'decomposition', 'connectome',
