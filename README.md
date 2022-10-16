@@ -3,7 +3,9 @@
 ## Installation
 
 Developed in python
-Use conda to set up a new isolated environment to install requirements.
+
+Clone repository locally
+or use conda to set up a new isolated environment to install requirements.
 
 ```bash
 pip install --user --upgrade git+
