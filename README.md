@@ -35,6 +35,6 @@ import social_navigation_task as snt
 
 ## Author
 
-* **Matthew Schafer** - *Development, maintenance* - [More Info](https://kulkarnik.com)
+Matthew Schafer
 
 See also the list of [contributors](https://github.com/your/project/contributors) who participated in this project.
