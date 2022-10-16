@@ -1,5 +1,6 @@
 import pandas as pd 
 from pathlib import Path 
+import openpyxl
 
 pkg_dir      = str(Path(__file__).parent.absolute())
 example_log  = str(Path(f'{pkg_dir}/../data/example_subject/snt_18001.log'))
@@ -19,7 +20,7 @@ try:
     decision_trials = decision_trials.astype(convert_dict)
     decision_trials.reset_index(inplace=True, drop=True)
 except: 
-    raise Exception('The file "snt_details.xlsx" is missing from the data folder. Cant run')
+    raise Exception(f"Can't find: '{pkg_dir}/../data/find snt_details.xlsx'")
 
 # defaults
 character_roles  = ['first', 'second', 'assistant', 'powerful', 'boss'] # in order of role num in decision_detials

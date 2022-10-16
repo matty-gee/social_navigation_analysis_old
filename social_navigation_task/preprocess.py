@@ -6,12 +6,15 @@ import numpy as np
 import scipy as sp 
 import sklearn as sk
 import pycircstat
-import shapely
+from shapely import geometry
 from PIL import Image
 
-pkg_dir = str(Path(__file__).parent.absolute())
 from info import *
 import utils
+
+pkg_dir = str(Path(__file__).parent.absolute())
+
+# TODO: auto-output into same data directory as the logs...
 
 ##########################################################################################
 # parse snt logs, jsons 
@@ -339,13 +342,14 @@ def compute_behavior(file_path, out_dir=None):
 
     # out directory
     if out_dir is None: 
-        out_dir = Path(f'{os.getcwd()}/preprocessed_behavior/behavior')        
+        out_dir = Path(f'{os.getcwd()}/preprocessed_behavior/behavior')   
     if not os.path.exists(out_dir): 
         os.makedirs(out_dir)
             
     ### load in data ###
+    file_path = Path(file_path)
     sub_id = file_path.stem.split('_')[1] # expects a filename like 'snt_subid_*'
-    assert is_numeric(sub_id), 'Subject id isnt numeric; check that filename has this pattern: "snt_subid*.xlsx"'
+    assert utils.is_numeric(sub_id), 'Subject id isnt numeric; check that filename has this pattern: "snt_subid*.xlsx"'
 
     file_path = Path(file_path)
     if file_path.suffix == '.xlsx':  behavior = pd.read_excel(file_path, engine='openpyxl')
@@ -423,9 +427,10 @@ def compute_behavior(file_path, out_dir=None):
                 coords    = behavior.loc[ixs, [f'affil_coord{wt}{dt}',f'power_coord{wt}{dt}']].values
 
                 ### cumulative mean along each dimension [-1,+1] ###
-                cum_mean = coords / np.cumsum(resp_mask, 0) # divide each time point by the response count 
+                cum_resp = np.cumsum(resp_mask, 0)
+                cum_mean = coords / cum_resp # divide each time point by the response count 
                 if c != 9: # neu will get all nans
-                    assert np.all(cum_mean[-1,:] == coords[-1,:] / 6), 'cumulative mean is off'
+                    assert np.all(cum_mean[-1,:] == coords[-1,:] / cum_resp[-1,:]), 'cumulative mean is off'
 
                 behavior.loc[ixs, [f'affil_mean{wt}{dt}', f'power_mean{wt}{dt}']] = cum_mean
 
@@ -490,7 +495,7 @@ def compute_behavior(file_path, out_dir=None):
     ## variables across all characters ###
     ######################################
 
-    suffixes = flatten_nested_lists([[f'{wt}{dt}' for dt in ['','_prev','_cf'] for wt in ['', '_linear-decay', '_expon-decay']]])
+    suffixes = utils.flatten_nested_lists([[f'{wt}{dt}' for dt in ['','_prev','_cf'] for wt in ['', '_linear-decay', '_expon-decay']]])
     
     for sx in suffixes:
 
@@ -507,14 +512,16 @@ def compute_behavior(file_path, out_dir=None):
 
             # in 2d
             try:    
+
                 shape = sp.spatial.ConvexHull(X[:,0:2])
                 perim = shape.area # perimeter
-                area  = shape.volume  # area
-                poly  = shapely.geometry.Polygon(X[:,0:2][shape.vertices]) 
+                area  = shape.volume  # area when 2D
+                poly  = geometry.Polygon(X[:,0:2][shape.vertices]) 
+                
                 overlap = []
                 for q, C in quadrants.items(): # overlap w/ quadrants
-                    q = shapely.geometry.Polygon(C[sp.spatial.ConvexHull(C).vertices]) 
-                    overlap.append(poly.intersection(q).area/poly.area)
+                    Q = geometry.Polygon(C[sp.spatial.ConvexHull(C).vertices])
+                    overlap.append(poly.intersection(Q).area/poly.area) 
             except: 
 
                 perim = np.nan
@@ -537,6 +544,9 @@ def summarize_behavior(file_paths, out_dir=None):
     
     if out_dir is None: 
         out_dir = Path(f'{os.getcwd()}/preprocessed_behavior')
+    else: 
+        if 'preprocessed_behavior' not in out_dir:
+            out_dir = Path(f'{out_dir}/preprocessed_behavior')
     if not os.path.exists(out_dir): 
         os.mkdir(out_dir)
 
