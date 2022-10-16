@@ -2,8 +2,7 @@ import os, sys, glob, warnings, math, patsy, csv
 import pandas as pd
 import numpy as np
 import re
-from tkinter import Tk
-from tkinter.filedialog import askdirectory
+
 import matplotlib.pyplot as plt
 from scipy import ndimage
 from scipy.stats import zscore
