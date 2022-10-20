@@ -6,13 +6,14 @@
 
 [how to clone it]
 
-Use conda to set up an environment with dependencies already installed
+Suggested: set up a conda environment with dependencies already installed
 
 From the directory you cloned: 
 ```bash
 conda env create f -env.yml # will create a conda env called 'social_navigation_task'
 conda activate social_navigation_task # activates env
 ```
+[TODO] Otherwise, install the packages manually from requirements.txt
 
 ### pip install
 ```bash
