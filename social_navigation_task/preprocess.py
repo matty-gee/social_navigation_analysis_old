@@ -9,16 +9,15 @@ import pycircstat
 from shapely import geometry
 from PIL import Image
 
-from info import *
+import info 
 import utils
 
 pkg_dir = str(Path(__file__).parent.absolute())
 
-# TODO: auto-output into same data directory as the logs...
+#------------------------------------------------------------------------------------------
+# parse snt logs, jsons, csvs
+#------------------------------------------------------------------------------------------
 
-##########################################################################################
-# parse snt logs, jsons 
-##########################################################################################
 
 def parse_log(file_path, experimenter, output_timing=True, out_dir=None): 
     '''
@@ -39,13 +38,19 @@ def parse_log(file_path, experimenter, output_timing=True, out_dir=None):
     '''
     
     # directories
-    if out_dir is None: out_dir = Path(f'{os.getcwd()}/preprocessed_behavior')
-    xlsx_dir = Path(f'{out_dir}/organized')
-    for dir_ in [out_dir, xlsx_dir]:
-        if not os.path.exists(dir_): 
-            os.makedirs(dir_)
-    timing_dir = Path(f'{out_dir}/timing/')
+    if out_dir is None: out_dir = Path(os.getcwd())
+    if not os.path.exists(out_dir):
+        print('Creating output directory')
+        os.makedirs(out_dir)
+
+    xlsx_dir = Path(f'{out_dir}/Organized')
+    if not os.path.exists(xlsx_dir):
+        print('Creating subdirectory for organized data')
+        os.makedirs(xlsx_dir)
+
+    timing_dir = Path(f'{out_dir}/Timing/')
     if output_timing & (not os.path.exists(timing_dir)):
+        print('Creating subdirectory for fmri timing files')
         os.makedirs(timing_dir)
 
     file_path = Path(file_path)
@@ -74,9 +79,9 @@ def parse_log(file_path, experimenter, output_timing=True, out_dir=None):
 
     # find the first slide onset --> eg, ['50821', '[11]', ':', 'pic_1_start: 50811']
     first_img = [row for row in data if row[3].startswith('pic_1_start')][0] # the first time the first character's image is shown
-    task_start = int(first_img[3].split()[1])
+    info.task_start = int(first_img[3].split()[1])
 
-    for t,trial in decision_trials.iterrows():
+    for t,trial in info.decision_trials.iterrows():
 
         row_num = -1
         found   = False # If valid button push has been found on the relevant slide
@@ -90,7 +95,7 @@ def parse_log(file_path, experimenter, output_timing=True, out_dir=None):
         # slide start onset
         if row_num < len(data):
             slide_start = int(data[row_num][3].split()[1])
-            slide_onset = (slide_start - int(task_start))/1000
+            slide_onset = (slide_start - int(info.task_start))/1000
             slide_end   = int(slide_start) + 11988 # slide end is 11988ms after start
         else:
             print('ERROR: %s_start not found!' % trial['cogent_slide_num'])
@@ -123,20 +128,7 @@ def parse_log(file_path, experimenter, output_timing=True, out_dir=None):
         else:                             dim_decs = [0, dec]
         choice_data.loc[t, ['decision_num','onset','button_press','decision','affil','power','reaction_time']] = [t+1, slide_onset, bp, dec] + dim_decs + [rt/1000]
 
-    convert_dict = {'decision_num': int,
-                    'onset': float,
-                    'dimension': str,
-                    'scene_num': int,
-                    'char_role_num': int,
-                    'char_decision_num': int,
-                    'button_press': int,
-                    'decision': int,
-                    'affil': int,
-                    'power': int,
-                    'reaction_time': float}
-    choice_data = decision_trials[['decision_num','dimension','scene_num','char_role_num','char_decision_num']].merge(choice_data, on='decision_num')
-    choice_data = choice_data.astype(convert_dict)
-
+    choice_data = merge_choice_data(choice_data)
     choice_data.to_excel(Path(f'{xlsx_dir}/snt_{sub_id}.xlsx'), index=False)
 
 
@@ -175,7 +167,7 @@ def parse_log(file_path, experimenter, output_timing=True, out_dir=None):
         timing_df = timing_df[(timing_df['duration'] < 13) & (timing_df['duration'] > 0)] # removes annoying pic slide duplicates...
         timing_df.reset_index(drop=True, inplace=True)
 
-        timing_df.insert(1, 'trial_type', task['trial_type'].values.reshape(-1,1))
+        timing_df.insert(1, 'trial_type', info.task['trial_type'].values.reshape(-1,1))
 
         assert timing_df['onset'][0] == 0.0, f'WARNING: {sub_id} first onset is off'
         assert timing_df['offset'].values[-1] < 1600, f'WARNING: {sub_id} timing seems too long'
@@ -183,9 +175,30 @@ def parse_log(file_path, experimenter, output_timing=True, out_dir=None):
 
         timing_df.to_excel(Path(f'{timing_dir}/snt_{sub_id}_timing.xlsx'), index=False)
 
-##########################################################################################
+
+def merge_choice_data(choice_data):
+    choice_data = info.decision_trials[['decision_num','dimension','scene_num','char_role_num','char_decision_num']].merge(choice_data, on='decision_num')
+    convert_dict = {'decision_num': int,
+                    'dimension': str,
+                    'scene_num': int,
+                    'char_role_num': int,
+                    'char_decision_num': int,
+                    'button_press': int,
+                    'decision': int,
+                    'affil': int,
+                    'power': int,
+                    'reaction_time': float}
+    if 'onset' in choice_data.columns:
+        convert_dict['onset'] = float
+
+    choice_data = choice_data.astype(convert_dict)
+    return choice_data
+
+
+#------------------------------------------------------------------------------------------
 # parse snt dots jpgs
-##########################################################################################
+#------------------------------------------------------------------------------------------
+
 
 def process_dots(img):
     img = load_image(img)
@@ -297,9 +310,11 @@ def define_char_coords(img):
 
     return recon_img, coords_df
 
-##########################################################################################
+
+#------------------------------------------------------------------------------------------
 # compute behavioral variables
-##########################################################################################
+#------------------------------------------------------------------------------------------
+
 
 def _shift_down(arr, by=1, replace=0):
     padded = np.ones_like(arr) * replace
@@ -342,10 +357,14 @@ def compute_behavior(file_path, out_dir=None):
 
     # out directory
     if out_dir is None: 
-        out_dir = Path(f'{os.getcwd()}/preprocessed_behavior/behavior')   
-    if not os.path.exists(out_dir): 
+        out_dir = Path(f'{os.getcwd()}/Behavior')
+    else:
+        if '/Behavior' not in out_dir: 
+            out_dir = Path(f'{out_dir}/Behavior')
+    if not os.path.exists(out_dir):
+        print('Creating subdirectory for behavior')
         os.makedirs(out_dir)
-            
+
     ### load in data ###
     file_path = Path(file_path)
     sub_id = file_path.stem.split('_')[1] # expects a filename like 'snt_subid_*'
@@ -592,9 +611,11 @@ def summarize_behavior(file_paths, out_dir=None):
     summary = pd.concat(summaries)
     summary.to_excel(Path(f'{out_dir}/SNT-behavior_n{summary.shape[0]}.xlsx'), index=False)
 
-##########################################################################################
-# compute mvpa 
-##########################################################################################
+
+#------------------------------------------------------------------------------------------
+# compute mvpa stuff
+#------------------------------------------------------------------------------------------
+
 
 def get_rdv_trials(trial_ixs, rdm_size=63):
 
@@ -616,9 +637,9 @@ def get_char_rdv(char_int, trial_ixs=None, rdv_to_mask=None):
     '''
     
     if trial_ixs is not None:
-        decisions = decision_trials.loc[trial_ixs,:].copy()        
+        decisions = info.decision_trials.loc[trial_ixs,:].copy()        
     else:
-        decisions = decision_trials
+        decisions = info.decision_trials
     
     # char_rdm = np.ones((decisions.shape[0], decisions.shape[0]))
     char_ixs = np.where(decisions['char_role_num'] == char_int)[0]
@@ -640,9 +661,9 @@ def get_ctl_rdvs(metric='euclidean', trial_ixs=None):
     # upper triangles
 
     if trial_ixs is not None: 
-        decisions = decision_trials.loc[trial_ixs,:]
+        decisions = info.decision_trials.loc[trial_ixs,:]
     else:
-        decisions = decision_trials
+        decisions = info.decision_trials
     cols = []
     
     # time-related drift rdms - continuous-ish
@@ -674,11 +695,16 @@ def compute_rdvs(file_path, metric='euclidean', output_all=True, out_dir=None):
 
     # out directory
     if out_dir is None: 
-        out_dir = Path(f'{os.getcwd()}/preprocessed_behavior/mvpa')        
-    if not os.path.exists(out_dir): 
+        out_dir = Path(f'{os.getcwd()}/RDVs')
+    else:
+        if '/RDVs' not in out_dir: 
+            out_dir = Path(f'{out_dir}/RDVs')
+    if not os.path.exists(out_dir):
+        print('Creating subdirectory for RDVs')
         os.makedirs(out_dir)
 
     ### load in data ###
+    file_path = Path(file_path)
     sub_id = file_path.stem.split('_')[1] # expects a filename like 'snt_subid_*'
     assert utils.is_numeric(sub_id), 'Subject id isnt numeric; check that filename has this pattern: "snt_subid*.xlsx"'
 

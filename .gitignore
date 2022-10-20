@@ -43,5 +43,4 @@ Thumbs.db
 *__pycache__
 *nilearn_cache
 *ipynb_checkpoints
-*.ipynb
 

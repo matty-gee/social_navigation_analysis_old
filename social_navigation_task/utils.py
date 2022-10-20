@@ -1,11 +1,14 @@
 import numpy as np
 import sklearn as sk
+from sklearn import metrics
 import itertools
 import pandas as pd
+import re
 
-#######################################################################################################
+#--------------------------------------------------------------------------------------------
 # checking 
-########################################################################################################
+#--------------------------------------------------------------------------------------------
+
 
 def all_equal(iterable):
     ''' check if all items in a list are identical '''
@@ -32,9 +35,38 @@ def get_unique(seq):
     seen_add = seen.add
     return [x for x in seq if not (x in seen or seen_add(x))]
 
-#######################################################################################################
+
+#--------------------------------------------------------------------------------------------
+# text parsing
+#--------------------------------------------------------------------------------------------
+
+
+def remove_nonnumeric(str_):
+    return re.sub(r'[^0-9]', '', str_)
+    
+
+def remove_nontext(string):
+    return re.sub(r'\W+', '', string)
+
+
+def find_pattern(strings, pattern, verbose=0):
+    if '*' in pattern:
+        if verbose: print('Replacing wildcard * with regex .+')
+        pattern = pattern.replace('*','.+')
+    regex = re.compile(pattern)
+    return [s for s in strings if re.match(pattern, s)]
+
+
+def get_strings_matching_substrings(strings, substrings):
+    ''' return strings in list that partially match any substring '''
+    matches = [any(ss in s for ss in substrings) for s in strings]
+    return list(np.array(strings)[matches])
+
+
+#--------------------------------------------------------------------------------------------
 # neutral character
-#######################################################################################################
+#--------------------------------------------------------------------------------------------
+
 
 def remove_neutrals(arr):
     ''' remove neutral charactr trials from array (trials 15, 16, 36) '''
@@ -48,9 +80,19 @@ def add_neutrals(arr, add=[0, 0]):
         neu_arr = np.insert(neu_arr, row, add, axis=0)
     return neu_arr
 
-#######################################################################################################
+
+#--------------------------------------------------------------------------------------------
 # math
-#######################################################################################################
+#--------------------------------------------------------------------------------------------
+
+
+def combos(arr, k=2):
+    """ 
+        arr: np.array to get combos from
+        r: num of combos
+    """
+    return list(itertools.combinations(arr, k))
+
 
 def exponential_decay(init, decay, time_steps):
     # f(t) = i(1 - r) ** t
@@ -247,10 +289,11 @@ def angular_similarity(u, v=None):
     return 1 - (np.arccos(cosine_similarity(u, v))/np.pi)
 
 
-########################################################################################################
+#--------------------------------------------------------------------------------------------
 # list & array manipulation
 # TODO: simplify these into a smaller set of more robust functions
-########################################################################################################
+#--------------------------------------------------------------------------------------------
+
 
 def flatten_nested_lists(L):
     return [i for sL in L for i in sL]
@@ -355,7 +398,7 @@ def make_symm_mat_mask(orig_ixs, size=(63)):
 def ut_vec_pw_dist(x, metric='euclidean'):
     x = np.array(x)
     if x.ndim == 1:  x = x.reshape(-1,1)
-    return symm_mat_to_ut_vec(pairwise_distances(x, metric=metric))
+    return symm_mat_to_ut_vec(sk.metrics.pairwise_distances(x, metric=metric))
 
  
 def symm_mat_to_ut_vec(mat):
