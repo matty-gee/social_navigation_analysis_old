@@ -6,11 +6,11 @@ Developed in python
 
 Clone repository locally
 
+
 Or use conda to set up a new isolated environment to install requirements.
 
 ```bash
-pip install --user --upgrade git+
-conda install -c conda-forge git+
+pip install --user --upgrade git+https://github.com/matty-gee/social_navigation_task.git
 ```
 
 ## Usage
