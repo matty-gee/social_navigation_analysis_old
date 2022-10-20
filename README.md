@@ -21,6 +21,10 @@ pip install --user --upgrade git+https://github.com/matty-gee/social_navigation_
 
 ## Usage
 
+If cloned, add the directory into the system path
+```python
+```
+
 ```python
 import social_navigation_task as snt
 
