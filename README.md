@@ -2,18 +2,29 @@
 
 ## Installation
 
-Developed in python
+### Clone repository locally
 
-Clone repository locally
+[how to clone it]
 
-Or use conda to set up a new isolated environment to install requirements.
+Suggested: set up a conda environment with dependencies already installed
 
+From the directory you cloned: 
 ```bash
-pip install --user --upgrade git+
-conda install -c conda-forge git+
+conda env create f -env.yml # will create a conda env called 'social_navigation_task'
+conda activate social_navigation_task # activates env
+```
+[TODO] Otherwise, install the packages manually from requirements.txt
+
+### pip install
+```bash
+pip install --user --upgrade git+https://github.com/matty-gee/social_navigation_task.git
 ```
 
 ## Usage
+
+If cloned, add the directory into the system path
+```python
+```
 
 ```python
 import social_navigation_task as snt
