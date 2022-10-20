@@ -176,8 +176,12 @@ def parse_log(file_path, experimenter, output_timing=True, out_dir=None):
         timing_df.to_excel(Path(f'{timing_dir}/snt_{sub_id}_timing.xlsx'), index=False)
 
 
-def merge_choice_data(choice_data):
-    choice_data = info.decision_trials[['decision_num','dimension','scene_num','char_role_num','char_decision_num']].merge(choice_data, on='decision_num')
+def merge_choice_data(choice_data, decision_cols=None):
+    if decision_cols is None:
+        decision_cols = ['dimension','scene_num','char_role_num','char_decision_num']
+    if 'decision_num' not in decision_cols:
+        decision_cols = ['decision_num'] + decision_cols
+    choice_data = info.decision_trials[decision_cols].merge(choice_data, on='decision_num')
     convert_dict = {'decision_num': int,
                     'dimension': str,
                     'scene_num': int,
