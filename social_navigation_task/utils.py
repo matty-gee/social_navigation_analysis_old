@@ -41,12 +41,12 @@ def get_unique(seq):
 #--------------------------------------------------------------------------------------------
 
 
-def remove_nonnumeric(str_):
-    return re.sub(r'[^0-9]', '', str_)
-    
-
 def remove_nontext(string):
-    return re.sub(r'\W+', '', string)
+    return re.sub(r'[^a-zA-Z]', '', string)
+
+
+def remove_nonnumeric(string):
+    return re.sub(r'[^0-9]', '', string)
 
 
 def find_pattern(strings, pattern, verbose=0):
