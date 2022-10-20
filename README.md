@@ -4,13 +4,14 @@
 
 ### Clone repository locally
 
-Use conda to set up a new isolated environment to install requirements: 
-env.yml : environment yaml with dependencies included
+[how to clone it]
+
+Use conda to set up an environment with dependencies already installed
 
 From the directory you cloned: 
 ```bash
-conda env create f -env.yml # will create a conda env
-conda activate social_navigation_task
+conda env create f -env.yml # will create a conda env called 'social_navigation_task'
+conda activate social_navigation_task # activates env
 ```
 
 ### pip install
