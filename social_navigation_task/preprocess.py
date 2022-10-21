@@ -205,14 +205,15 @@ class ParseCsv:
         [By Matthew G. Schafer; <mattygschafer@gmail.com>; github @matty-gee; 2020ish]
     '''
     
-    def __init__(self, csv_path, experiment='standard', verbose=0):
+    def __init__(self, csv_path, snt_version='standard', verbose=0):
 
         self.verbose    = verbose
         self.csv        = csv_path
         self.data       = pd.read_csv(csv_path)
         self.sub_id     = self.data.prolific_id[0]
         self.task_ver   = self.data['task_ver'].values[0]
-        self.experiment = experiment
+        self.snt_ver    = snt_version
+
         self.clean()
 
         # for older versions!
@@ -241,6 +242,8 @@ class ParseCsv:
             self.data = self.data.iloc[0,:].to_frame().T
         
         ### standardize naming conventions ###
+        # there have been multiple versions of the task, multiple naming conventions etc..
+        # this is an attempt to standardize the naming before extracting variables
 
         # make everything lower case
         self.data.columns = map(str.lower, self.data.columns)
@@ -369,7 +372,7 @@ class ParseCsv:
         
         return self.characters
 
-    def process_memory(self, version='adult'):
+    def process_memory(self):
 
         if not utils.substring_in_strings('memory', self.data.columns):
             if self.verbose: print('There are no memory columns in the csv')   
@@ -379,15 +382,15 @@ class ParseCsv:
 
             # correct answers when questions are alphabetically sorted
             # {0: 'first', 1: 'second', 2: 'assistant', 3: 'newcomb', 4: 'hayworth', 5: 'neutral'}
-            if version == 'adult':
+            if self.snt_ver.isin(['standard', 'schema']):
                 corr = [1,4,5,4,5,0,0,0,4,1,3,3,1,4,5,3,1,0,2,5,5,2,2,2,3,3,0,1,2,4] 
                 # original? : [1,3,5,3,5,0,0,0,3,1,2,2,1,3,5,2,1,0,4,5,5,4,4,4,2,2,0,1,4,3]...????
-            elif version == 'adolescent':
+            elif self.snt_ver == 'adolescent':
                 corr = [1,4,0,5,5,4,0,0,0,4,3,3,3,4,1,5,3,1,2,5,2,5,1,2,2,2,3,0,1,4]
             
             memory_cols = [c for c in self.data.columns if 'memory' in c]
             if 'memory_resps' in memory_cols or 'character_memory' in memory_cols: # older version
-                # these versions compressed responses into a single column with delimeter
+                # these versions compressed responses into a single column with a delimeter
                 try: 
                     memory_  = [t.split(';')[1:2] for t in self.data['memory_resps'].values[0].split('","')]
                 except: 
@@ -516,6 +519,9 @@ class ParseCsv:
             self.forced_choice.columns = ['forced_choice_' + c for c in self.forced_choice.columns]
                 
             return self.forced_choice
+
+    # process iq
+    # process misc qs
 
 
 def parse_csv(file_path, out_dir=None):

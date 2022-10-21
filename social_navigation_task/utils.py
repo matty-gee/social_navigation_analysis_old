@@ -190,7 +190,7 @@ def angle_between_vectors(u, v, direction=None, verbose=False):
     return rad
 
 
-def calculate_angle(U, V=None, direction=None, force_pairwise=False, verbose=False):
+def calculate_angle(U, V=None, direction=None, force_pairwise=True, verbose=False):
     '''
         Calculate angles between n-dim vectors 
         If V == None, calculate U pairwise
@@ -208,14 +208,13 @@ def calculate_angle(U, V=None, direction=None, force_pairwise=False, verbose=Fal
             None : included 180
             False : counterclockwise 360 (wont give a symmetrical matrix)
             True : clockwise 360
-        force_pairwise : optional (default=False)
             
         Returns
         -------
         numeric 
             pairwise angles in radians
 
-        [By Matthew Schafer, github: @matty-gee; 2020ish]
+        [By Matthew Schafer; github: @matty-gee; 2020ish]
     '''
     
     # # testing (10-12-22)
@@ -229,21 +228,43 @@ def calculate_angle(U, V=None, direction=None, force_pairwise=False, verbose=Fal
     if U.ndim == 1: 
         U = np.expand_dims(U, 0)
         messages.append('Added a dimension to U')
+        
     if V is not None:
         if V.ndim == 1: 
             V = np.expand_dims(V, 0)
             messages.append('Added a dimension to V')
 
-    # determine output shape     
-    if V is None:
-        ret = 'pairwise'
+            
+    # determine output shape 
+    # - 1 set of vectors: pw, square, symm
+    if V is None: 
+        default = 'pairwise'
         V = U 
-    elif U.shape == V.shape:
-        ret = 'elementwise' 
+        
+    # - 2 vectors of same shape
+    # -- pw, square, non-symm
+    # -- ew, vector
+    elif U.shape == V.shape: 
+        default = 'elementwise' 
+
+    # - 2 vectors, 1 w/ length==1 & is reference
+    # -- pw, vector shape (1,u)
     elif (U.shape[0] > 1) & (V.shape[0] == 1): 
         V = np.repeat(V, len(U), 0) 
-        ret = 'single reference'  
-    messages.append(f'Calculated {ret}')
+        default = 'reference'  
+    
+    # -- pw, vector shape (v,1)
+    elif (U.shape[0] == 1) & (V.shape[0] > 1): 
+        U = np.repeat(U, len(V), 0) 
+        default = 'reference' 
+        
+    # - 2 vectors, different lengths
+    # -- pw, rectangle 
+    else: 
+        default = 'pairwise' 
+        
+    messages.append(f'Calculated {default}')
+    
     
     # calculate angles
     radians = np.zeros((U.shape[0], V.shape[0]))
@@ -251,17 +272,19 @@ def calculate_angle(U, V=None, direction=None, force_pairwise=False, verbose=Fal
         for j in range(V.shape[0]):
             radians[i, j] = angle_between_vectors(U[i,:], V[j,:], direction=direction)
 
+            
     # output
-    if ret == 'pairwise': cols = 'U'
-    else:                 cols = 'V'
+    if default == 'pairwise': cols = 'U'
+    else:                     cols = 'V'
     radians = pd.DataFrame(radians, index=[f'U{i+1:02d}' for i in range(len(U))], columns=[f'{cols}{i+1:02d}' for i in range(len(V))])
 
-    if not force_pairwise: 
-        if ret == 'single reference':
+    if not force_pairwise:
+        if default == 'reference':
             radians = radians.iloc[:,0].values
-        elif ret == 'elementwise':
+        elif default == 'elementwise':
             radians = np.diag(radians)
     if verbose: [print(m) for m in messages]
+        
     return radians
 
 

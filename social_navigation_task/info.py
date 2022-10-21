@@ -8,6 +8,8 @@ example_xlsx = str(Path(f'{pkg_dir}/../data/example_subject/snt_18001.xlsx'))
 
 # decision info:
 try: 
+
+    # standard details file
     task_file = str(Path(f'{pkg_dir}/../data/snt_details.xlsx'))
     task = pd.read_excel(task_file)
     task.sort_values(by='slide_num', inplace=True)
@@ -33,4 +35,4 @@ except:
     raise Exception(f"Can't find: '{pkg_dir}/../data/snt_details.xlsx'")
 
 # defaults
-character_roles  = ['first', 'second', 'assistant', 'powerful', 'boss'] # in order of role num in decision_detials
+character_roles  = ['first', 'second', 'assistant', 'powerful', 'boss', 'neutral'] # in order of role num in snt_details
