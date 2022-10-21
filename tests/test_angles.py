@@ -65,3 +65,6 @@ class TestAngles(unittest.TestCase):
         res1 = utils.calculate_angle(U, V, force_pairwise=True)
         res2 = utils.calculate_angle(V, U, force_pairwise=True)
         self.assertEqual(res1.T.values.all(), res2.T.values.all())
+
+if __name__ == '__main__':
+    unittest.main()
