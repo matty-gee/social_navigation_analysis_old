@@ -41,6 +41,12 @@ def get_unique(seq):
 #--------------------------------------------------------------------------------------------
 
 
+def remove_multiple_strings(string, replace_list):
+  for string_ in replace_list:
+    string = string.replace(string_, '')
+  return string
+
+
 def remove_nontext(string):
     return re.sub(r'[^a-zA-Z]', '', string)
 
@@ -49,7 +55,7 @@ def remove_nonnumeric(string):
     return re.sub(r'[^0-9]', '', string)
 
 
-def find_pattern(strings, pattern, verbose=0):
+def get_strings_matching_pattern(strings, pattern, verbose=0):
     if '*' in pattern:
         if verbose: print('Replacing wildcard * with regex .+')
         pattern = pattern.replace('*','.+')
@@ -61,6 +67,10 @@ def get_strings_matching_substrings(strings, substrings):
     ''' return strings in list that partially match any substring '''
     matches = [any(ss in s for ss in substrings) for s in strings]
     return list(np.array(strings)[matches])
+
+
+def substring_in_strings(substring, strings):
+    return substring in '\t'.join(strings)
 
 
 #--------------------------------------------------------------------------------------------

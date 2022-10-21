@@ -15,7 +15,7 @@ import utils
 pkg_dir = str(Path(__file__).parent.absolute())
 
 #------------------------------------------------------------------------------------------
-# parse snt logs, jsons, csvs
+# parse snt logs & csvs
 #------------------------------------------------------------------------------------------
 
 
@@ -197,6 +197,350 @@ def merge_choice_data(choice_data, decision_cols=None):
 
     choice_data = choice_data.astype(convert_dict)
     return choice_data
+
+
+class ParseCsv:
+    '''
+        SUMMARY
+        [By Matthew G. Schafer; <mattygschafer@gmail.com>; github @matty-gee; 2020ish]
+    '''
+    
+    def __init__(self, csv_path, experiment='standard', verbose=0):
+
+        self.verbose    = verbose
+        self.csv        = csv_path
+        self.data       = pd.read_csv(csv_path)
+        self.sub_id     = self.data.prolific_id[0]
+        self.task_ver   = self.data['task_ver'].values[0]
+        self.experiment = experiment
+        self.clean()
+
+        # for older versions!
+        # ordered: ['first', 'second', 'assistant', 'powerful', 'boss', 'neutral']
+        self.img_sets = {'OFA': ['OlderFemaleBl_2','OlderMaleW_1','OlderMaleBr_2','OlderMaleW_4','OlderFemaleBr_3','OlderFemaleW_1'],
+                            'OFB': ['OlderFemaleW_2','OlderMaleBr_1','OlderMaleW_5','OlderMaleBl_3','OlderFemaleW_3','OlderFemaleBl_1'], 
+                            'OFC': ['OlderFemaleBl_2','OlderMaleBr_1','OlderMaleBr_4','OlderMaleW_5','OlderFemaleW_3','OlderFemaleW_1'], 
+                            'OFD': ['OlderFemaleW_2','OlderMaleW_1','OlderMaleW_5','OlderMaleBr_3','OlderFemaleBr_3','OlderFemaleBl_1'], 
+                            'OMA': ['OlderMaleBr_2','OlderFemaleW_2','OlderFemaleBr_5','OlderFemaleW_3','OlderMaleBr_1','OlderMaleW_5'], 
+                            'OMB': ['OlderMaleW_1','OlderFemaleBl_2','OlderFemaleW_1','OlderFemaleBl_3','OlderMaleW_4','OlderMaleBr_4'], 
+                            'OMC': ['OlderMaleBr_4','OlderFemaleBl_2','OlderFemaleBl_1','OlderFemaleW_3','OlderMaleW_3','OlderMaleW_5'], 
+                            'OMD': ['OlderMaleW_1','OlderFemaleW_2','OlderFemaleW_1','OlderFemaleBr_5','OlderMaleBr_3','OlderMaleBr_4'], 
+                            'YFA': ['YoungerFemaleBr_1','YoungerMaleW_4','OlderMaleBr_4','YoungerMaleW_3','OlderFemaleBr_5','OlderFemaleW_1'], 
+                            'YFB': ['YoungerFemaleW_3','YoungerMaleBr_2','YoungerMaleW_2','OlderMaleBr_3','OlderFemaleW_4','OlderFemaleBl_1'], 
+                            'YFC': ['YoungerFemaleBr_1','YoungerMaleBr_2','OlderMaleBr_4','OlderMaleW_4','OlderFemaleW_3','OlderFemaleW_1'], 
+                            'YFD': ['YoungerFemaleW_3','YoungerMaleW_4','OlderMaleW_5','OlderMaleBr_3','OlderFemaleBr_5','OlderFemaleBl_1'],
+                            'YMA': ['YoungerMaleBr_2','YoungerFemaleW_3','OlderFemaleBl_1','OlderFemaleW_4','OlderMaleBr_3','YoungerMaleW_2'],
+                            'YMB': ['YoungerMaleW_4','YoungerFemaleBr_1','OlderFemaleW_1','OlderFemaleBr_5','YoungerMaleW_3','OlderMaleBr_4'],
+                            'YMC': ['YoungerMaleBr_2','YoungerFemaleBr_1','OlderFemaleBl_1','OlderFemaleW_3','OlderMaleW_3','OlderMaleW_5'],
+                            'YMD': ['YoungerMaleW_4','YoungerFemaleW_3','OlderFemaleW_1','OlderFemaleBr_3','OlderMaleBr_3','OlderMaleBr_4']}
+
+    def clean(self):
+        
+        # data can be two identical rows for some reason
+        if self.data.shape[0] > 1: 
+            self.data = self.data.iloc[0,:].to_frame().T
+        
+        ### standardize naming conventions ###
+
+        # make everything lower case
+        self.data.columns = map(str.lower, self.data.columns)
+        self.data = self.data.apply(lambda x: x.astype(str).str.lower())
+
+        # replace character names w/ their roles
+        replace_substrings = {'newcomb':'powerful', 'hayworth':'boss'}
+
+        if 'O' in self.task_ver or 'Y' in self.task_ver:  # this doesnt apply to adolescent version...
+            if 'F' in self.task_ver: 
+                order = ['maya','chris','anthony','newcomb','hayworth','kayce']
+            else: 
+                order = ['chris','maya','kayce','newcomb','hayworth','anthony']
+            for name in order: replace_substrings[name] = info.character_roles[order.index(name)]
+
+        self.data.replace(replace_substrings, inplace=True, regex=True) # replace elements
+        
+        # replace column headers
+        replace_substrings['.'] = '_'
+        replace_substrings['narrative'] = 'snt'
+        replace_substrings['demographics'] = 'judgments'
+        replace_substrings['self_judgments'] = 'judgments'
+        replace_substrings['relationship_feelings'] = 'character_relationship'
+        for k,i in replace_substrings.items():
+            self.data.columns = self.data.columns.str.replace(k,i, regex=True)
+        
+        # race judgments may need to be reworked
+        if utils.substring_in_strings('race', self.data.columns):
+            race_cols = utils.find_pattern(self.data.columns, 'race_*_*')
+            rename = {}
+            for col in race_cols:
+                split_ = col.split('_')
+                rename[col] = f'judgment_{split_[1]}_{split_[0]}_{split_[2]}'
+            self.data.rename(columns=rename, inplace=True)
+            
+        return self.data
+   
+    def run_pipeline(self):
+
+        if 'snt_choices' not in self.data.columns:    
+            print(f'{self.sub_id} does not have a "snt_choice" column. Exiting w/o preprocessing')
+            return 
+        else: 
+            self.task_functions = {'snt': self.process_snt,
+                                  'characters': self.process_characters,
+                                  'memory': self.process_memory,
+                                  'dots': self.process_dots, 
+                                  'forced_choice': self.process_forced_choice,
+                                  'ratings': self.process_ratings}     
+
+            self.task_functions['snt']()
+            post_snt = []
+            for task in ['characters', 'memory', 'dots', 'ratings', 'forced_choice']:
+                out = self.task_functions[task]()
+                if isinstance(out, pd.DataFrame):
+                    post_snt.append(out)
+            self.post = pd.concat(post_snt, axis=1)
+            self.post.index = [self.sub_id]
+            return [self.snt, self.post]
+    
+    def process_snt(self):
+
+        if 'snt_choices' not in self.data.columns:
+            print(f'{self.sub_id} does not have a "snt_choice" column')
+            return
+        else:
+            
+            # the options alphabetically sorted to allow easy standardization
+            validated_decisions = validated_decisions[self.experiment]
+
+            snt_bps  = np.array([int(re.sub('["\]"]', '', d.split(':')[1])) for d in self.data['snt_choices'].values[0].split(',')]) # single column
+            snt_opts = self.data['snt_opts_order'].values[0].split('","') # split on delimter
+            self.snt = pd.DataFrame(columns=['decision_num', 'button_press', 'decision', 'affil', 'power'])
+
+            for q, question in enumerate(snt_opts):
+
+                # organize
+                opt1    = utils.remove_nontext(question.split(';')[1]) # this delimeter might change?
+                opt2    = utils.remove_nontext(question.split(';')[2])
+                sort_ix = np.argsort((opt1, opt2)) # order options alphabetically
+
+                # parse the choice
+                choice   = sort_ix[snt_bps[q] - 1] + 1 # choice -> 1 or 2, depending on alphabetical ordering
+                decision = validated_decisions.iloc[q]
+                affl = np.array(decision['option{}_affil'.format(int(choice))]) # grab the correct option's affil value
+                pwr  = np.array(decision['option{}_power'.format(int(choice))]) # & power
+                self.snt.loc[q,:] = [q + 1, snt_bps[q], affl + pwr, affl, pwr]
+
+            snt_rts = np.array([int(utils.remove_nonnumeric(rt)) for rt in self.data['snt_rts'].values[0].split(',')])
+            self.snt['reaction_time'] = snt_rts[np.array(validated_decisions['Slide_num']) - 1] / 1000
+        
+            self.snt = info.decision_trials[['decision_num','dimension','scene_num','char_role_num','char_decision_num']].merge(self.snt, on='decision_num')
+            convert_dict = {'decision_num': int,
+                            'dimension': str,
+                            'scene_num': int,
+                            'char_role_num': int,
+                            'char_decision_num': int,
+                            'button_press': int,
+                            'decision': int,
+                            'affil': int,
+                            'power': int,
+                            'reaction_time': float}
+            self.snt = self.snt.astype(convert_dict) 
+
+            # snt_df.to_excel(f'{self.data_dir}/Task/Organized/SNT_{self.sub_id}.xlsx', index=False)
+
+            return self.snt
+
+    def process_characters(self):
+        '''
+           simple classes: masculine & feminine, dark skin & light skin 
+        '''
+        if not utils.substring_in_strings('character_info_', self.data.columns): # older version
+            img_names = [i.lower() for i in self.img_sets[self.task_ver]]
+        else: # newer version
+            img_names = [self.data[f'character_info_{r}_img'].values[0].lower() for r in info.character_roles]
+
+        gender_bool    = [any([ss in i for ss in ['girl','woman','female']]) for i in img_names]
+        skincolor_bool = [any([ss in i for ss in ['br','bl','brown','black','dark']]) for i in img_names]
+
+        # make into df
+        self.characters = pd.concat([pd.DataFrame(np.array(['feminine' if b  else 'masculine' for b in gender_bool])[np.newaxis], 
+                                                    index=[self.sub_id], columns=[f'{r}_gender' for r in info.character_roles]),
+                                     pd.DataFrame(np.array(['brown' if b  else 'white' for b in skincolor_bool])[np.newaxis], 
+                                                    index=[self.sub_id], columns=[f'{r}_skincolor' for r in info.character_roles])], axis=1)
+        
+        return self.characters
+
+    def process_memory(self, version='adult'):
+
+        if not utils.substring_in_strings('memory', self.data.columns):
+            if self.verbose: print('There are no memory columns in the csv')   
+            return 
+        else: 
+            if self.verbose: print('Processing memory')
+
+            # correct answers when questions are alphabetically sorted
+            # {0: 'first', 1: 'second', 2: 'assistant', 3: 'newcomb', 4: 'hayworth', 5: 'neutral'}
+            if version == 'adult':
+                corr = [1,4,5,4,5,0,0,0,4,1,3,3,1,4,5,3,1,0,2,5,5,2,2,2,3,3,0,1,2,4] 
+                # original? : [1,3,5,3,5,0,0,0,3,1,2,2,1,3,5,2,1,0,4,5,5,4,4,4,2,2,0,1,4,3]...????
+            elif version == 'adolescent':
+                corr = [1,4,0,5,5,4,0,0,0,4,3,3,3,4,1,5,3,1,2,5,2,5,1,2,2,2,3,0,1,4]
+            
+            memory_cols = [c for c in self.data.columns if 'memory' in c]
+            if 'memory_resps' in memory_cols or 'character_memory' in memory_cols: # older version
+                # these versions compressed responses into a single column with delimeter
+                try: 
+                    memory_  = [t.split(';')[1:2] for t in self.data['memory_resps'].values[0].split('","')]
+                except: 
+                    memory_  = [t.split(';')[1:2] for t in self.data['character_memory'].values[0].split('","')]
+                ques_ = [m[0].split(':')[0] for m in memory_]
+                resp_ = [m[0].split(':')[1] for m in memory_]
+
+            else: # newer version
+
+                ques_  = self.data[[c for c in memory_cols if 'question' in c]].values[0]
+                resp_  = self.data[[c for c in memory_cols if 'resp' in c]].values[0]
+            
+            memory = sorted(list(zip(ques_, resp_)))
+            self.memory = pd.DataFrame(np.zeros((1,6)), columns=[f'memory_{cr}' for cr in info.character_roles])
+            for r, resp in enumerate(memory): 
+                if resp[1] == info.character_roles[corr[r]]: 
+                    self.memory[f'memory_{info.character_roles[corr[r]]}'] += 1/5
+
+            # combine summary & trial x trial
+            self.memory['memory_mean'] = np.mean(self.memory.values)
+            self.memory['memory_rt']   = np.mean(self.data[[c for c in memory_cols if 'rt' in c]].values[0].astype(float) / 1000)
+            memory_resp_df = pd.DataFrame(np.array([r[1] for r in memory]).reshape(1, -1), 
+                                          columns=[f'memory_{q + 1 :02d}_{info.character_roles[r]}' for q, r in enumerate(corr)])
+
+            self.memory = pd.concat([self.memory, memory_resp_df], axis=1)
+            self.memory.index = [self.sub_id]
+            self.memory.insert(0, 'task_ver', self.data['task_ver'].values[0])
+                
+            return self.memory
+    
+    def process_dots(self):
+
+        if not utils.substring_in_strings('dots', self.data.columns):            
+            if self.verbose: print('There are no dots columns in the csv')
+            return
+        else: 
+            if self.verbose: print('Processing dots')
+            dots_cols = [c for c in self.data.columns if 'dots' in c]
+            self.dots = pd.DataFrame(index=[self.sub_id], columns=[f'{c}_dots_{d}' for c in info.character_roles for d in ['affil','power']])
+
+            # rename & standardize 
+            if 'dots_resps' in dots_cols: # older version
+                for row in self.data['dots_resps'].values[0].split(','):
+                    split_ = row.split(';')
+                    role = utils.remove_nontext(split_[0].split(':')[0])
+                    self.dots[f'{role}_dots_affil'] = (float(split_[1].split(':')[1]) - 500)/500
+                    self.dots[f'{role}_dots_power'] = (500 - float(split_[2].split(':')[1]))/500
+
+            else: # newer version 
+                for role in info.character_roles:
+                    self.dots[f'{role}_dots_affil'] = (float(self.data[f'dots_{role}_affil'].values[0]) - 500)/500
+                    self.dots[f'{role}_dots_power'] = (500 - float(self.data[f'dots_{role}_power'].values[0]))/500
+
+            # get means
+            for dim in ['affil','power']:
+                self.dots[f'dots_{dim}_mean'] = np.mean(self.dots[[c for c in self.dots.columns if dim in c]],1).values[0]
+                    
+            return self.dots
+
+    def process_ratings(self):
+        
+        if 'character_dimensions' in self.data.columns: 
+            if self.verbose: print('Processing ratings (older version)')
+            ratings = []
+            for col in ['character_dimensions', 'character_relationship']:
+                for row in [char.split(';') for char in self.data[col].values[0].split(',')]: 
+                    role     = utils.remove_nontext(row[0])
+                    dims     = [utils.remove_nontext(r) for r in row[1:-1]] # last is rt
+                    ratings_ = [int(utils.remove_nonnumeric(r)) for r in row[1:-1]]
+                    ratings.append(pd.DataFrame(np.array(ratings_)[np.newaxis], index=[self.sub_id], columns=[f'{role}_{d}' for d in dims]))
+            self.ratings = pd.concat(ratings, axis=1)   
+            rating_dims = np.unique([c.split('_')[1] for c in self.ratings.columns])
+
+        elif utils.substring_in_strings('judgments', self.data.columns):
+            if self.verbose: print('Processing ratings')
+
+            rating_cols = utils.get_strings_matching_pattern(self.data.columns, 'judgments_*_resp')
+            if len(self.data[rating_cols]): ratings = self.data[rating_cols].iloc[0,:].values.astype(int).reshape(1,-1)
+            else:                           ratings = self.data[rating_cols].values.astype(int).reshape(1,-1)
+            rating_cols  = [utils.remove_multiple_strings(c, ['judgments_','_resp']) for c in rating_cols]
+            self.ratings = pd.DataFrame(ratings, index=[self.sub_id], columns=rating_cols)
+            rating_dims  = np.unique([c.split('_')[1] for c in rating_cols])
+            
+        else:
+            if self.verbose: print('There are no character/self ratings columns in the csv')
+            return
+
+        # mean of character ratings 
+        for dim in rating_dims: 
+            self.ratings[f'{dim}_mean'] = np.mean(self.ratings[[f'{r}_{dim}' for r in info.character_roles]], axis=1)
+        
+        return self.ratings
+
+    def process_forced_choice(self):
+
+        if not utils.substring_in_strings('forced_choice', self.data.columns): 
+            if self.verbose: print('There are no forced choice columns in the csv')
+            return
+        else:
+            if self.verbose: print('Processing forced choice')
+            choices = self.data[[c for c in self.data.columns if 'forced_choice' in c]]
+            n_choices = int(len(choices.columns) / 3) # 3 cols for each trial
+
+            self.forced_choice = pd.DataFrame()
+            for t in np.arange(0, n_choices):
+
+                options = choices[f'forced_choice_{t}_comparison'].values[0].split('_&_')
+                rt      = float(choices[f'forced_choice_{t}_rt'].values[0])
+
+                # organize the responses
+                resp    = float(choices[f'forced_choice_{t}_resp'].values[0]) - 50 # center
+                if resp < 0: choice = options[0]
+                else:        choice = options[1]
+
+                ans                   = np.array([0, 0])
+                options               = sorted(options)
+                ans_ix                = options.index(choice)
+                ans[ans_ix]           = np.abs(resp)
+                ans[np.abs(ans_ix-1)] = -np.abs(resp)
+
+                self.forced_choice.loc[0, [f'{options[0]}_v_{options[1]}_{options[0]}']] = ans[0]
+                self.forced_choice.loc[0, [f'{options[0]}_v_{options[1]}_{options[1]}']] = ans[1]   
+                self.forced_choice.loc[0, [f'{options[0]}_v_{options[1]}_reaction_time']] = rt
+
+            self.forced_choice.index = [self.sub_id]
+            self.forced_choice.columns = ['forced_choice_' + c for c in self.forced_choice.columns]
+                
+            return self.forced_choice
+
+
+def parse_csv(file_path, out_dir=None):
+    
+    # directories
+    if out_dir is None: out_dir = Path(os.getcwd())
+    if not os.path.exists(out_dir):
+        print('Creating output directory')
+        os.makedirs(out_dir)
+
+    snt_dir = Path(f'{out_dir}/Organized')
+    if not os.path.exists(snt_dir):
+        print('Creating subdirectory for organized snt data')
+        os.makedirs(snt_dir)
+
+    post_dir = Path(f'{out_dir}/Posttask')
+    if not os.path.exists(post_dir):
+        print('Creating subdirectory for organized post task data')
+        os.makedirs(post_dir)   
+
+    # parse file
+    parser = ParseCsv(file_path, verbose=0)
+    snt, post = parser.run_pipeline()
+    snt.to_excel(Path(f'{snt_dir}/snt_{parser.sub_id}.xlsx'), index=False)
+    post.to_excel(Path(f'{post_dir}/snt-posttask_{parser.sub_id}.xlsx'), index=True)
 
 
 #------------------------------------------------------------------------------------------
