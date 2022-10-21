@@ -669,158 +669,456 @@ def define_char_coords(img):
 # compute behavioral variables
 #------------------------------------------------------------------------------------------
 
-
-def _shift_down(arr, by=1, replace=0):
-    padded = np.ones_like(arr) * replace
-    padded[by:] = np.array(arr)[0:-by] # replace 
-    return padded
-
-
-def minmax_coords(decisions):
-    ''' 
-        find the max & min coordinates 
-        incrementally accounts for non-responses
-        incremental mean: accumulated choices / number of choices made, at each time point
-    '''
-    decisions = np.array(decisions)
+# def compute_behavior(file_path, out_dir=None):
     
-    # most consistency possible [for decision pattern]
-    con = abs(decisions)
-    con_coords = np.cumsum(con, 0)
+#     # annoying warnings that I dont think matter really
+#     from warnings import simplefilter
+#     simplefilter(action="ignore", category=pd.errors.PerformanceWarning) # fragmented df
+#     np.seterr(divide='ignore', invalid='ignore') # division by 0 in some of our operations
 
-    # least consistency possible [for decision pattern]
-    incon = np.zeros_like(con)
-    for ndim in range(2):
-        mask = con[:, ndim] != 0 
-        con_d = con[mask, ndim] # if its not 0, its a response
-        incon[mask, ndim] = [n if not i % 2 else -n for i,n in enumerate(con_d)] # flip signs
-    incon_coords = np.cumsum(incon, 0)
+#     # out directory
+#     if out_dir is None: 
+#         out_dir = Path(f'{os.getcwd()}/Behavior')
+#     else:
+#         if '/Behavior' not in out_dir: 
+#             out_dir = Path(f'{out_dir}/Behavior')
+#     if not os.path.exists(out_dir):
+#         print('Creating subdirectory for behavior')
+#         os.makedirs(out_dir)
 
-    # want the cumulative mean to control for non-responses: divide by num of responses to that point
-    resp_counts = np.cumsum(abs(decisions) != 0, 0) 
+#     ### load in data ###
+#     file_path = Path(file_path)
+#     sub_id = file_path.stem.split('_')[1] # expects a filename like 'snt_subid_*'
 
-    return [incon_coords / resp_counts, con_coords / resp_counts]
+#     if not utils.is_numeric(sub_id): 
+#         raise NameError('Subject id isnt numeric; check that filename has this pattern: "snt_subid*.xlsx"')
 
-
-def compute_behavior(file_path, out_dir=None):
-    
-    # annoying warnings that I dont think matter really
-    from warnings import simplefilter
-    simplefilter(action="ignore", category=pd.errors.PerformanceWarning) # fragmented df
-    np.seterr(divide='ignore', invalid='ignore') # division by 0 in some of our operations
-
-    # out directory
-    if out_dir is None: 
-        out_dir = Path(f'{os.getcwd()}/Behavior')
-    else:
-        if '/Behavior' not in out_dir: 
-            out_dir = Path(f'{out_dir}/Behavior')
-    if not os.path.exists(out_dir):
-        print('Creating subdirectory for behavior')
-        os.makedirs(out_dir)
-
-    ### load in data ###
-    file_path = Path(file_path)
-    sub_id = file_path.stem.split('_')[1] # expects a filename like 'snt_subid_*'
-    assert utils.is_numeric(sub_id), 'Subject id isnt numeric; check that filename has this pattern: "snt_subid*.xlsx"'
-
-    file_path = Path(file_path)
-    if file_path.suffix == '.xlsx':  behavior = pd.read_excel(file_path, engine='openpyxl')
-    elif file_path.suffix == '.xls': behavior = pd.read_excel(file_path)
-    elif file_path.suffix == '.csv': behavior = pd.read_csv(file_path)
+#     file_path = Path(file_path)
+#     if file_path.suffix == '.xlsx':  behavior = pd.read_excel(file_path, engine='openpyxl')
+#     elif file_path.suffix == '.xls': behavior = pd.read_excel(file_path)
+#     elif file_path.suffix == '.csv': behavior = pd.read_csv(file_path)
 
 
-    #####################################
-    ### compute things w/in character ###
-    #####################################
+#     #####################################
+#     ### compute things w/in character ###
+#     #####################################
 
-    for c in [1,2,3,4,5,9]:
+#     for c in [1,2,3,4,5,9]:
 
-        mask_df = (behavior['char_role_num']==c).values
-        ixs = np.where(behavior['char_role_num']==c)[0]
-        behav = behavior.loc[ixs,:]
-        decisions = behav[['affil','power']].values
+#         mask_df = (behavior['char_role_num']==c).values
+#         ixs = np.where(behavior['char_role_num']==c)[0]
+#         behav = behavior.loc[ixs,:]
+#         decisions = behav[['affil','power']].values
 
-        # dont count non-responses for averages, etc
-        responded  = (behav['button_press'] != 0).values.reshape(-1,1)
-        mask_affil = (behav['dimension'] == 'affil').values
-        mask_power = (behav['dimension'] == 'power').values
-        resp_mask  =  np.vstack([mask_affil, mask_power]).T * responded
+#         # dont count non-responses for averages, etc
+#         responded  = (behav['button_press'] != 0).values.reshape(-1,1)
+#         mask_affil = (behav['dimension'] == 'affil').values
+#         mask_power = (behav['dimension'] == 'power').values
+#         resp_mask  =  np.vstack([mask_affil, mask_power]).T * responded
 
-        assert decisions.shape == resp_mask.shape, 'decision and response mask arrays are diff shapes'
-        tests = {'Df mask': [mask_df, (63,)]}
-        for testname, test in tests.items():
-             assert test[0].shape == test[1], f'{testname} should have shape {test[1]} but has shape ({test[0].shape})'
+#         # if responded
 
+#         ################################
+#         ###  decisions & coordinates ###
+#         ################################
 
-        ################################
-        ###  decisions & coordinates ###
-        ################################
-
-        # different decision weighting schemes
-        nt = len(decisions) 
-        constant    = np.ones(nt)[:,None] # standard weighting with a constant
-        linear      = utils.linear_decay(1, 1/nt, nt)[:,None]
-        exponential = utils.exponential_decay(1, 1/nt, nt)[:,None]
+#         # different decision weighting schemes
+#         nt = len(decisions) 
+#         constant    = np.ones(nt)[:,None] # standard weighting with a constant
+#         linear      = utils.linear_decay(1, 1/nt, nt)[:,None]
+#         exponential = utils.exponential_decay(1, 1/nt, nt)[:,None]
         
-        for wt, w in {'':constant, '_linear-decay':linear, '_expon-decay':exponential}.items():
+#         for wt, w in {'':constant, '_linear-decay':linear, '_expon-decay':exponential}.items():
 
-            ### weight the decisions & make coordinates 
-            decisions_w = decisions * w
-            coords_w = np.cumsum(decisions_w, 0)
+#             ### weight the decisions & make coordinates 
+#             decisions_w = decisions * w
+#             coords_w = np.cumsum(decisions_w, 0)
 
-            ### current decisions & coordinates
-            # - eg, if on each trial the subj represents the the decision/coordinates they chose
-            behavior.loc[ixs, [f'affil{wt}', f'power{wt}']] = decisions_w.astype(float)
-            behavior.loc[ixs, [f'affil_coord{wt}', f'power_coord{wt}']] = coords_w.astype(float)
+#             ### current decisions & coordinates
+#             # - eg, if on each trial the subj represents the the decision/coordinates they chose
+#             behavior.loc[ixs, [f'affil{wt}', f'power{wt}']] = decisions_w.astype(float)
+#             behavior.loc[ixs, [f'affil_coord{wt}', f'power_coord{wt}']] = coords_w.astype(float)
 
-            ### previous decisions & coordinates
-            # - eg, if on each trial the subj represents the last chosen decision/coordinates
-            shifted_decisions_w = _shift_down(decisions_w, by=1) 
-            behavior.loc[ixs, [f'affil{wt}_prev', f'power{wt}_prev']] = shifted_decisions_w
-            behavior.loc[ixs, [f'affil_coord{wt}_prev', f'power_coord{wt}_prev']] = np.cumsum(shifted_decisions_w, 0)
+#             ### previous decisions & coordinates
+#             # - eg, if on each trial the subj represents the last chosen decision/coordinates
+#             shifted_decisions_w = _shift_down(decisions_w, by=1) 
+#             behavior.loc[ixs, [f'affil{wt}_prev', f'power{wt}_prev']] = shifted_decisions_w
+#             behavior.loc[ixs, [f'affil_coord{wt}_prev', f'power_coord{wt}_prev']] = np.cumsum(shifted_decisions_w, 0)
 
-            ### countefactual decisions & coordinates
-            # - counterfactual wrt each trial
-            # -- eg, if on each trial the subj represents the [ultimately] non-chosen decision/coordinates
-            prev_coords_w = coords_w - decisions_w # for each trial, undo the decisions by subtracting to get the prev coords
-            decisions_w_cf = -decisions_w # opposite decision
-            behavior.loc[ixs, [f'affil{wt}_cf',f'power{wt}_cf']] = decisions_w_cf
-            behavior.loc[ixs, [f'affil_coord{wt}_cf',f'power_coord{wt}_cf']] = prev_coords_w + decisions_w_cf # flip the decision made, and add back in 
+#             ### countefactual decisions & coordinates
+#             # - counterfactual wrt each trial
+#             # -- eg, if on each trial the subj represents the [ultimately] non-chosen decision/coordinates
+#             prev_coords_w = coords_w - decisions_w # for each trial, undo the decisions by subtracting to get the prev coords
+#             decisions_w_cf = -decisions_w # opposite decision
+#             behavior.loc[ixs, [f'affil{wt}_cf',f'power{wt}_cf']] = decisions_w_cf
+#             behavior.loc[ixs, [f'affil_coord{wt}_cf',f'power_coord{wt}_cf']] = prev_coords_w + decisions_w_cf # flip the decision made, and add back in 
 
 
-            ###########################
-            ### geometric variables ###
-            ###########################
+#             ###########################
+#             ### geometric variables ###
+#             ###########################
 
-            # loop over each decision type
-            for dt in ['','_prev','_cf']:
+#             # loop over each decision type
+#             for dt in ['','_prev','_cf']:
 
-                decisions = behavior.loc[ixs, [f'affil{wt}{dt}',f'power{wt}{dt}']].values
-                coords    = behavior.loc[ixs, [f'affil_coord{wt}{dt}',f'power_coord{wt}{dt}']].values
+#                 decisions = behavior.loc[ixs, [f'affil{wt}{dt}',f'power{wt}{dt}']].values
+#                 coords    = behavior.loc[ixs, [f'affil_coord{wt}{dt}',f'power_coord{wt}{dt}']].values
+
+#                 ### cumulative mean along each dimension [-1,+1] ###
+#                 cum_resp = np.cumsum(resp_mask, 0)
+#                 cum_mean = coords / cum_resp # divide each time point by the response count 
+#                 if c != 9: # neu will get all nans
+#                     assert np.all(cum_mean[-1,:] == coords[-1,:] / cum_resp[-1,:]), 'cumulative mean is off'
+
+#                 behavior.loc[ixs, [f'affil_mean{wt}{dt}', f'power_mean{wt}{dt}']] = cum_mean
+
+#                 ### culumative consistency: how far did they go in the direction they were traveling? [0,1] ###
+
+#                 minmax = minmax_coords(decisions)
+
+#                 # 1d consistency = abs value coordinate, scaled by min and max possible coordinate            
+#                 behavior.loc[ixs, [f'affil_consistency{wt}{dt}', f'power_consistency{wt}{dt}']] = (np.abs(cum_mean) - minmax[0]) / (minmax[1] - minmax[0])
+
+#                 # 2d consistency = decision vector length, scaled by min and max possible vector lengths
+#                 min_r = np.array([np.linalg.norm(v) for v in minmax[0]])
+#                 max_r = np.array([np.linalg.norm(v) for v in minmax[1]])
+#                 r = np.array([np.linalg.norm(v) for v in cum_mean])
+#                 behavior.loc[ixs, f'consistency{wt}{dt}'] = (r - min_r) / (max_r - min_r)
+
+#                 ### multi-dimensional: angles & distances ###
+
+#                 # directional angles between (ori to poi) and (ori to ref) [optional 3rd dimension]
+#                 # - origin (ori)
+#                 # --- neu: (0, 0, [interaction # (1:12)]) - note that 'origin' moves w/ interactions if in 3d
+#                 # --- pov: (6, 0, [interaction # (1:12)])
+#                 # - reference vector (ref)
+#                 # --- neu: (6, 0, [max interaction (12)])
+#                 # --- pov: (6, 6, [max interaction (12)])
+#                 # - point of interaction vector (poi): (curr. affil coord, power coord, [interaction # (1:12)])
+#                 # to get directional vetctors (poi-ori), (ref-ori)
+
+#                 ref_frames = {'neu': {'ori': np.array([[0,0]]), 'ref': np.array([[6,0]]), 'dir': False},
+#                               'pov': {'ori': np.array([[6,0]]), 'ref': np.array([[6,6]]), 'dir': None}} 
+#                 int_num    = np.arange(1, len(behav)+1).reshape(-1, 1)
+
+#                 for ndim in np.arange(2, 4):    
+#                     for ot in ['neu', 'pov']:
+
+#                         ## angles between ori-poi & ori-ref
+#                         ref_frame = ref_frames[ot]
+#                         poi = coords
+#                         ref = ref_frame['ref']
+#                         ori = ref_frame['ori']
+#                         drn = ref_frame['dir'] # direction for angle calc
+
+#                         # if 3d, add 3rd dimension
+#                         if ndim == 3: 
+#                             poi = np.concatenate([poi, int_num], 1) # changes w/ num of interactions
+#                             ref = np.repeat(np.hstack([ref[0], 12]).reshape(1, -1), len(poi), 0) # fixed
+#                             ori = np.concatenate([np.repeat(ori.reshape(1, -1), len(poi), 0), int_num], 1) # changes w/ num of interactions
+#                             drn = None # may not be correct for neutral origin... not sure yet
+
+#                         # account for origin
+#                         poi = poi - ori
+#                         ref = ref - ori
+
+#                         # angle between ori-poi & ori-ref
+#                         behavior.loc[ixs, f'{ot}{ndim}d_angle{wt}{dt}'] = utils.calculate_angle(poi, ref, direction=drn) # outputs radians
+
+#                         ## distances from ori-poi
+#                         if ndim == 2: 
+#                             behavior.loc[ixs, f'{ot}_distance{wt}{dt}'] = [np.linalg.norm(v) for v in poi] # l2 norm is euclidean distance from ori
+
+#     ######################################
+#     ## variables across all characters ###
+#     ######################################
+
+#     suffixes = utils.flatten_nested_lists([[f'{wt}{dt}' for dt in ['','_prev','_cf'] for wt in ['', '_linear-decay', '_expon-decay']]])
+    
+#     for sx in suffixes:
+
+#         quadrants = {'1': np.array([[0,0], [0,6],  [6,0],  [6,6]]),   '2': np.array([[0,0], [0,6],  [-6,0], [-6,6]]),
+#                      '3': np.array([[0,0], [0,-6], [-6,0], [-6,-6]]), '4': np.array([[0,0], [0,-6], [6,0],  [6,-6]])}
+
+#         for t in range(0, 63):
+
+#             # in 3d
+#             X = behavior.loc[:t, [f'affil_coord{sx}', f'power_coord{sx}', 'char_decision_num']].values
+
+#             try:    vol = sp.spatial.ConvexHull(X).volume
+#             except: vol = np.nan
+
+#             # in 2d
+#             try:    
+
+#                 shape = sp.spatial.ConvexHull(X[:,0:2])
+#                 perim = shape.area # perimeter
+#                 area  = shape.volume  # area when 2D
+#                 poly  = geometry.Polygon(X[:,0:2][shape.vertices]) 
+                
+#                 overlap = []
+#                 for q, C in quadrants.items(): # overlap w/ quadrants
+#                     Q = geometry.Polygon(C[sp.spatial.ConvexHull(C).vertices])
+#                     overlap.append(poly.intersection(Q).area/poly.area) 
+#             except: 
+
+#                 perim = np.nan
+#                 area  = np.nan
+#                 overlap = [np.nan,np.nan,np.nan,np.nan]
+
+#             behavior.loc[t, f'perimeter{sx}']  = perim
+#             behavior.loc[t, f'area{sx}']       = area
+#             behavior.loc[t, f'volume{sx}']     = vol
+#             behavior.loc[t, f'Q1_overlap{sx}'] = overlap[0]
+#             behavior.loc[t, f'Q2_overlap{sx}'] = overlap[1]
+#             behavior.loc[t, f'Q3_overlap{sx}'] = overlap[2]
+#             behavior.loc[t, f'Q4_overlap{sx}'] = overlap[3]
+            
+            
+#     behavior.to_excel(Path(f'{out_dir}/snt_{sub_id}_behavior.xlsx'), index=False)
+
+
+class ComputeBehavior:
+
+    def __init__(self, file_path, weight_types=None, decision_types=None, out_dir=None):
+    
+        # annoying warnings
+        from warnings import simplefilter
+        simplefilter(action="ignore", category=pd.errors.PerformanceWarning) # fragmented df
+        np.seterr(divide='ignore', invalid='ignore') # division by 0 in some of our operations
+
+        if file_path is None: # easy unittesting
+            self.file_path = None
+            self.sub_id = None
+
+        else: 
+
+            # load in data
+            self.file_path = Path(file_path)
+            self.sub_id    = self.file_path.stem.split('_')[1] # expects a filename like 'snt_subid_*'
+            assert utils.is_numeric(self.sub_id), 'Subject id isnt numeric; check that filename has this pattern: "snt_subid*.xlsx"'
+
+            if self.file_path.suffix == '.xlsx':  self.behavior = pd.read_excel(self.file_path, engine='openpyxl')
+            elif self.file_path.suffix == '.xls': self.behavior = pd.read_excel(self.file_path)
+            elif self.file_path.suffix == '.csv': self.behavior = pd.read_csv(self.file_path)
+
+            # out directory
+            if out_dir is False: 
+                self.out_dir = False
+            elif out_dir is None: 
+                self.out_dir = Path(f'{os.getcwd()}/Behavior')
+            else:
+                if '/Behavior' not in out_dir: 
+                    self.out_dir = Path(f'{out_dir}/Behavior')
+            if self.out_dir is not False and not os.path.exists(self.out_dir):
+                print('Creating subdirectory for behavior')
+                os.makedirs(self.out_dir)
+    
+        # define weighting & decision type options
+        self.weight_types = {'':'constant', '_linear-decay':'linear', '_exponential-decay':'exponential'}
+        if weight_types is None:    self.wts = ['']
+        elif weight_types == 'all': self.wts = list(self.weight_types.keys())
+        else:                       self.wts = weight_types
+        
+        self.decision_types = {'': self.cumulative_coords, '_prev': self.previous_decisions, '_cf': self.counterfactual_decisions}
+        if decision_types is None:  self.dts = ['']
+        elif weight_types == 'all': self.dts = list(self.decision_types.keys())
+        else:                       self.dts = decision_types
+
+    def run(self):
+        [self.compute_character(c) for c in [1,2,3,4,5,9]]
+        self.compute_across_character()
+        if self.out_dir is not False:
+            self.behavior.to_excel(Path(f'{self.out_dir}/snt_{self.sub_id}_behavior.xlsx'), index=False)
+        return self.behavior
+
+    def weight_decisions(self, decisions, decay='constant'):
+        ''' 
+            different ways to weight the decisions 
+        '''
+        nt = len(decisions)
+        if decay == 'constant':
+            weights = np.ones(nt)[:,None] # standard weighting with a constant
+        elif decay == 'linear':
+            weights = utils.linear_decay(1, 1/nt, nt)[:,None]
+        elif decay == 'exponential':
+            weights = utils.exponential_decay(1, 1/nt, nt)[:,None]
+
+        return decisions * weights
+
+    def cumulative_coords(self, decisions):
+        ''' mainly just to be able to pass a function like for prev decision etc'''
+        return decisions.astype(float), np.cumsum(decisions,0).astype(float)
+
+    def previous_decisions(self, decisions, by=1, replace=0):
+        # if on each trial the subj represents the last chosen decision/coordinates
+
+        # shift decisions & get coords
+        shifted_decisions      = np.ones_like(decisions) * replace
+        shifted_decisions[by:] = np.array(decisions)[0:-by] # replace
+        shifted_coords         = np.cumsum(shifted_decisions, axis=0)
+        return shifted_decisions.astype(float), shifted_coords.astype(float)
+
+    def counterfactual_decisions(self, decisions):
+        # - counterfactual wrt each trial
+        # -- eg, if on each trial the subj represents the [ultimately] non-chosen decision/coordinates
+        coords       = np.cumsum(decisions, 0)
+        prev_coords  = coords - decisions # for each trial, undo the decisions by subtracting to get the prev coords
+        decisions_cf = -decisions # counterfactual decision
+        coords_cf    = prev_coords + decisions_cf # counterfactual coordinates: add the cf decision to the previous coordinate 
+
+        return decisions_cf.astype(float), coords_cf.astype(float)
+
+    def cumulative_mean(self, values, counts):
+        # divide sum at each time point by the response count
+        cum_sum   = np.cumsum(values, axis=0)
+        cum_count = np.cumsum(counts, axis=0)
+        return  [cum_sum / cum_count, (cum_sum, cum_count)]
+
+    def minmax_coords(self, decisions):
+        ''' 
+            find the max & min coordinates 
+            incrementally accounts for non-responses
+            incremental mean: accumulated choices / number of choices made, at each time point
+        '''
+        decisions = np.array(decisions)
+        
+        # most consistency possible [for decision pattern]
+        con = abs(decisions)
+        con_coords = np.cumsum(con, axis=0)
+
+        # least consistency possible [for decision pattern]
+        incon = np.zeros_like(con)
+        for ndim in range(2):
+            mask = con[:, ndim] != 0 
+            con_d = con[mask, ndim] # if its not 0, its a response
+            incon[mask, ndim] = [n if not i % 2 else -n for i,n in enumerate(con_d)] # flip signs
+        incon_coords = np.cumsum(incon, axis=0)
+
+        # want the cumulative mean to control for non-responses: divide by num of responses to that point
+        resp_counts = np.cumsum(abs(decisions) != 0, axis=0) 
+
+        return [incon_coords / resp_counts, con_coords / resp_counts]
+
+    def cumulative_consistency(self, decisions, resp_mask):
+
+        # 1d consistency = abs value coordinate, scaled by min and max possible coordinate  
+        minmax = self.minmax_coords(decisions)  
+        cum_mean, _ = self.cumulative_mean(decisions, resp_mask)
+        consistency_1d = (np.abs(cum_mean) - minmax[0]) / (minmax[1] - minmax[0])
+
+        # 2d consistency = decision vector length, scaled by min and max possible vector lengths
+        minmax_r = (np.array([np.linalg.norm(v) for v in minmax[0]]), np.array([np.linalg.norm(v) for v in minmax[1]]))
+        cum_mean_r = np.array([np.linalg.norm(v) for v in cum_mean])
+        consistency_r = (cum_mean_r - minmax_r[0]) / (minmax_r[1] - minmax_r[0])
+
+        # return both dimensions separately & 2d
+        return [consistency_1d, consistency_r]
+
+    def add_3rd_dimension(self, U, V, ori):
+        ''' 
+            add 3rd dimension to U & V, as well as to the origin coordinates
+            U is vector of interest, z-axis will vary w/ number of interactions
+            ori will be subtracted from U, so its z-axis will also vary w/ number of interactions
+            V is reference vector, z-axis will remain fixed
+        '''
+        if V.ndim == 2:   V = V[0]
+        if ori.ndim == 1: ori = ori[np.newaxis]
+
+        num = np.arange(1, len(U) + 1)[:,np.newaxis]
+        U   = np.concatenate([U, num], axis=1) # changes w/ num of interactions
+        V   = np.repeat(np.hstack([V, len(U)])[np.newaxis], len(U), axis=0) # fixed
+        ori = np.concatenate([np.repeat(ori, len(U), axis=0), num], axis=1) # changes w/ num of interactions   
+
+        return U, V, ori                           
+
+    def quadrant_overlap(self, coords):
+        ''' 
+            the percentage overlap of the decision polygon (made by vertices of coordinates) with each of the 4 2D quadrants 
+            sum == 100
+        '''
+        
+        make_polygon = lambda C : geometry.Polygon(C[sp.spatial.ConvexHull(C).vertices])
+
+        quadrants = {'1': np.array([[0,0], [0,6],  [6,0],  [6,6]]),   
+                     '2': np.array([[0,0], [0,6],  [-6,0], [-6,6]]),
+                     '3': np.array([[0,0], [0,-6], [-6,0], [-6,-6]]), 
+                     '4': np.array([[0,0], [0,-6], [6,0],  [6,-6]])}
+
+        try: 
+            polygon = make_polygon(coords)
+            overlap = []
+            for q, qC in quadrants.items():
+                Q = make_polygon(qC)
+                overlap.append(polygon.intersection(Q).area/polygon.area)
+        except:
+             overlap = [np.nan, np.nan, np.nan, np.nan]
+        
+        return overlap
+
+    def compute_character(self, c):
+        ''' 
+            compute w/in character 
+        '''
+        ixs   = np.where(self.behavior['char_role_num']==c)[0]
+        behav = self.behavior.loc[ixs,:]
+
+        # masks for dimensions & for responses
+        responded = (behav['button_press'] != 0).values[:,np.newaxis] # dont count non-responses for averages, etc
+        dim_mask  = np.vstack([(behav['dimension'] == 'affil').values, (behav['dimension'] == 'power').values]).T # boolean
+        resp_mask = np.multiply(dim_mask, responded) # boolean
+
+        # get decisions into shape=(12,2) [or (3,2) for neutral]
+        if 'affil' not in behav.columns: # backward compatability
+            decisions = behav['decision'].values[:,np.newaxis] * (dim_mask * 1) 
+        else:
+            decisions = behav[['affil','power']].values 
+        if decisions.shape != (12,2) and decisions.shape != (3,2):
+            raise Exception(f"Character number {c}'s decision array {decisions.shape} is wrong shape")    
+        if decisions.shape != resp_mask.shape:
+            raise Exception(f"Character number {c}'s decision {decisions.shape} and response mask {resp_mask.shape} arrays are diff. shapes")
+
+        #-----------------------------------------
+        # weight decisions & calculate coordinates
+        #-----------------------------------------
+        
+        for wt in self.wts:
+
+            ### weight decision updates
+            decisions_w = self.weight_decisions(decisions, decay=self.weight_types[wt])
+            
+            for dt in self.dts:
+                
+                ### compute specific decision types & coordinates
+                decisions, coords = self.decision_types[dt](decisions_w)
+                if decisions.shape != (12,2) and decisions.shape != (3,2):
+                    raise Exception(f"Character number {c}'s {wt}{dt} decision {decisions.shape} array is wrong shape")
+                if decisions.shape != coords.shape:
+                    raise Exception(f"Character number {c}'s {wt}{dt} decision {decisions.shape} and coordinates {coords.shape} arrays are diff. shapes")
+
+                self.behavior.loc[ixs, [f'affil{wt}{dt}', f'power{wt}{dt}']]             = decisions
+                self.behavior.loc[ixs, [f'affil_coord{wt}{dt}', f'power_coord{wt}{dt}']] = coords
+
+                #--------------------------
+                # means and absolute values
+                #--------------------------
 
                 ### cumulative mean along each dimension [-1,+1] ###
-                cum_resp = np.cumsum(resp_mask, 0)
-                cum_mean = coords / cum_resp # divide each time point by the response count 
-                if c != 9: # neu will get all nans
-                    assert np.all(cum_mean[-1,:] == coords[-1,:] / cum_resp[-1,:]), 'cumulative mean is off'
-
-                behavior.loc[ixs, [f'affil_mean{wt}{dt}', f'power_mean{wt}{dt}']] = cum_mean
+                cum_mean, (cum_sum, cum_count) = self.cumulative_mean(decisions, resp_mask)
+                if c != 9 and np.all(cum_mean[-1,:] != cum_sum[-1,:] / cum_count[-1,:]):
+                    raise Exception(f'Cumulative mean for character number {c} is off')
+                self.behavior.loc[ixs, [f'affil_mean{wt}{dt}', f'power_mean{wt}{dt}']] = cum_mean
 
                 ### culumative consistency: how far did they go in the direction they were traveling? [0,1] ###
+                consistency, consistency_2d = self.cumulative_consistency(decisions, resp_mask)
+                if consistency.shape != (12,2) and consistency.shape != (3,2):
+                    raise Exception(f'Cumulative consistency for character number {c} is off: {consistency.shape}')
+                self.behavior.loc[ixs, [f'affil_consistency{wt}{dt}', f'power_consistency{wt}{dt}']] = consistency[:,0][np.newaxis], consistency[:,1][np.newaxis]
+                self.behavior.loc[ixs, f'consistency{wt}{dt}'] = consistency_2d
 
-                minmax = minmax_coords(decisions)
-
-                # 1d consistency = abs value coordinate, scaled by min and max possible coordinate            
-                behavior.loc[ixs, [f'affil_consistency{wt}{dt}', f'power_consistency{wt}{dt}']] = (np.abs(cum_mean) - minmax[0]) / (minmax[1] - minmax[0])
-
-                # 2d consistency = decision vector length, scaled by min and max possible vector lengths
-                min_r = np.array([np.linalg.norm(v) for v in minmax[0]])
-                max_r = np.array([np.linalg.norm(v) for v in minmax[1]])
-                r = np.array([np.linalg.norm(v) for v in cum_mean])
-                behavior.loc[ixs, f'consistency{wt}{dt}'] = (r - min_r) / (max_r - min_r)
-
-                ### multi-dimensional: angles & distances ###
+                #--------------------------------------
+                # multi-dimensional: angles & distances
+                #--------------------------------------
 
                 # directional angles between (ori to poi) and (ori to ref) [optional 3rd dimension]
                 # - origin (ori)
@@ -834,23 +1132,19 @@ def compute_behavior(file_path, out_dir=None):
 
                 ref_frames = {'neu': {'ori': np.array([[0,0]]), 'ref': np.array([[6,0]]), 'dir': False},
                               'pov': {'ori': np.array([[6,0]]), 'ref': np.array([[6,6]]), 'dir': None}} 
-                int_num    = np.arange(1, len(behav)+1).reshape(-1, 1)
+                int_num    = np.arange(1, len(behav)+1)[np.newaxis]
 
-                for ndim in np.arange(2, 4):    
+                for ndim in [2, 3]:    
                     for ot in ['neu', 'pov']:
 
                         ## angles between ori-poi & ori-ref
-                        ref_frame = ref_frames[ot]
                         poi = coords
-                        ref = ref_frame['ref']
-                        ori = ref_frame['ori']
-                        drn = ref_frame['dir'] # direction for angle calc
+                        ref_frame = ref_frames[ot]
+                        ref, ori, drn = ref_frame['ref'], ref_frame['ori'], ref_frame['dir']
 
                         # if 3d, add 3rd dimension
                         if ndim == 3: 
-                            poi = np.concatenate([poi, int_num], 1) # changes w/ num of interactions
-                            ref = np.repeat(np.hstack([ref[0], 12]).reshape(1, -1), len(poi), 0) # fixed
-                            ori = np.concatenate([np.repeat(ori.reshape(1, -1), len(poi), 0), int_num], 1) # changes w/ num of interactions
+                            poi, ref, ori = self.add_3rd_dimension(poi, ref[0], ori)
                             drn = None # may not be correct for neutral origin... not sure yet
 
                         # account for origin
@@ -858,61 +1152,45 @@ def compute_behavior(file_path, out_dir=None):
                         ref = ref - ori
 
                         # angle between ori-poi & ori-ref
-                        behavior.loc[ixs, f'{ot}{ndim}d_angle{wt}{dt}'] = utils.calculate_angle(poi, ref, direction=drn) # outputs radians
+                        self.behavior.loc[ixs, f'{ot}{ndim}d_angle{wt}{dt}'] = utils.calculate_angle(poi, ref, force_pairwise=False, direction=drn) # outputs radians
 
                         ## distances from ori-poi
                         if ndim == 2: 
-                            behavior.loc[ixs, f'{ot}_distance{wt}{dt}'] = [np.linalg.norm(v) for v in poi] # l2 norm is euclidean distance from ori
+                            self.behavior.loc[ixs, f'{ot}_distance{wt}{dt}'] = [np.linalg.norm(v) for v in poi] # l2 norm is euclidean distance from ori
 
-    ######################################
-    ## variables across all characters ###
-    ######################################
+    def compute_across_character(self):
+        ''' 
+            variables across characters
+        '''
+        
+        for sx in utils.flatten_nested_lists([[f'{wt}{dt}' for dt in self.dts for wt in self.wts]]):
+            for t in range(0, 63):
 
-    suffixes = utils.flatten_nested_lists([[f'{wt}{dt}' for dt in ['','_prev','_cf'] for wt in ['', '_linear-decay', '_expon-decay']]])
-    
-    for sx in suffixes:
+                X = self.behavior.loc[:t, [f'affil_coord{sx}', f'power_coord{sx}', 'char_decision_num']].values
 
-        quadrants = {'1': np.array([[0,0], [0,6],  [6,0],  [6,6]]),   '2': np.array([[0,0], [0,6],  [-6,0], [-6,6]]),
-                     '3': np.array([[0,0], [0,-6], [-6,0], [-6,-6]]), '4': np.array([[0,0], [0,-6], [6,0],  [6,-6]])}
+                try: # 3d 
+                    vol = sp.spatial.ConvexHull(X).volume
+                except: 
+                    vol = np.nan
+                try: # 2d
+                    shape = sp.spatial.ConvexHull(X[:,0:2]) 
+                    perim, area = shape.area, shape.volume # outputs perim & area when 2D
+                except: 
+                    perim, area = np.nan, np.nan
 
-        for t in range(0, 63):
+                overlap = self.quadrant_overlap(X[:,0:2])
+                if not np.isnan(overlap[0]) and not math.isclose(np.sum(overlap), 1):
+                    raise Exception(f"Sum of quadrant overlap percentages isn't 100%: {np.sum(overlap)*100}%")
 
-            # in 3d
-            X = behavior.loc[:t, [f'affil_coord{sx}', f'power_coord{sx}', 'char_decision_num']].values
-
-            try:    vol = sp.spatial.ConvexHull(X).volume
-            except: vol = np.nan
-
-            # in 2d
-            try:    
-
-                shape = sp.spatial.ConvexHull(X[:,0:2])
-                perim = shape.area # perimeter
-                area  = shape.volume  # area when 2D
-                poly  = geometry.Polygon(X[:,0:2][shape.vertices]) 
+                self.behavior.loc[t, f'perimeter{sx}']  = perim
+                self.behavior.loc[t, f'area{sx}']       = area
+                self.behavior.loc[t, f'volume{sx}']     = vol
+                self.behavior.loc[t, f'Q1_overlap{sx}'] = overlap[0]
+                self.behavior.loc[t, f'Q2_overlap{sx}'] = overlap[1]
+                self.behavior.loc[t, f'Q3_overlap{sx}'] = overlap[2]
+                self.behavior.loc[t, f'Q4_overlap{sx}'] = overlap[3]
                 
-                overlap = []
-                for q, C in quadrants.items(): # overlap w/ quadrants
-                    Q = geometry.Polygon(C[sp.spatial.ConvexHull(C).vertices])
-                    overlap.append(poly.intersection(Q).area/poly.area) 
-            except: 
 
-                perim = np.nan
-                area  = np.nan
-                overlap = [np.nan,np.nan,np.nan,np.nan]
-
-            behavior.loc[t, f'perimeter{sx}']  = perim
-            behavior.loc[t, f'area{sx}']       = area
-            behavior.loc[t, f'volume{sx}']     = vol
-            behavior.loc[t, f'Q1_overlap{sx}'] = overlap[0]
-            behavior.loc[t, f'Q2_overlap{sx}'] = overlap[1]
-            behavior.loc[t, f'Q3_overlap{sx}'] = overlap[2]
-            behavior.loc[t, f'Q4_overlap{sx}'] = overlap[3]
-            
-            
-    behavior.to_excel(Path(f'{out_dir}/snt_{sub_id}_behavior.xlsx'), index=False)
-
-          
 def summarize_behavior(file_paths, out_dir=None):
     
     if out_dir is None: 
