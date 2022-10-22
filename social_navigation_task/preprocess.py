@@ -887,13 +887,14 @@ class ComputeBehavior:
         simplefilter(action="ignore", category=pd.errors.PerformanceWarning) # fragmented df
         np.seterr(divide='ignore', invalid='ignore') # division by 0 in some of our operations
 
+        # can use to just compute stuff
         if file_path is None: # easy unittesting
             self.file_path = None
             self.sub_id = None
 
+        # load in data
         else: 
-
-            # load in data
+            
             self.file_path = Path(file_path)
             self.sub_id    = self.file_path.stem.split('_')[1] # expects a filename like 'snt_subid_*'
             assert utils.is_numeric(self.sub_id), 'Subject id isnt numeric; check that filename has this pattern: "snt_subid*.xlsx"'
@@ -920,7 +921,7 @@ class ComputeBehavior:
         elif weight_types == 'all': self.wts = list(self.weight_types.keys())
         else:                       self.wts = weight_types
         
-        self.decision_types = {'': self.cumulative_coords, '_prev': self.previous_decisions, '_cf': self.counterfactual_decisions}
+        self.decision_types = {'': self.cumulative_coords, '_prev': self.previous_coords, '_cf': self.counterfactual_coords}
         if decision_types is None:  self.dts = ['']
         elif weight_types == 'all': self.dts = list(self.decision_types.keys())
         else:                       self.dts = decision_types
@@ -928,6 +929,9 @@ class ComputeBehavior:
     def run(self):
         [self.compute_character(c) for c in [1,2,3,4,5,9]]
         self.compute_across_character()
+
+        # TODO check if there are a lot of empties
+
         if self.out_dir is not False:
             self.behavior.to_excel(Path(f'{self.out_dir}/snt_{self.sub_id}_behavior.xlsx'), index=False)
         return self.behavior
@@ -950,7 +954,7 @@ class ComputeBehavior:
         ''' mainly just to be able to pass a function like for prev decision etc'''
         return decisions.astype(float), np.cumsum(decisions,0).astype(float)
 
-    def previous_decisions(self, decisions, by=1, replace=0):
+    def previous_coords(self, decisions, by=1, replace=0):
         # if on each trial the subj represents the last chosen decision/coordinates
 
         # shift decisions & get coords
@@ -959,12 +963,17 @@ class ComputeBehavior:
         shifted_coords         = np.cumsum(shifted_decisions, axis=0)
         return shifted_decisions.astype(float), shifted_coords.astype(float)
 
-    def counterfactual_decisions(self, decisions):
-        # - counterfactual wrt each trial
-        # -- eg, if on each trial the subj represents the [ultimately] non-chosen decision/coordinates
-        coords       = np.cumsum(decisions, 0)
+    def counterfactual_coords(self, decisions):
+        ''' 
+            counterfactual wrt each trial
+            - eg, if on each trial the subj represents the [ultimately] non-chosen decision/coordinates: 'what if?' 
+            - assumes that the previous coordinate is remembered - its counterfactual only wrt THIS trial....
+            TODO: could make full on counterfactual trajectories....
+        '''
+
+        coords       = np.cumsum(decisions, axis=0)
         prev_coords  = coords - decisions # for each trial, undo the decisions by subtracting to get the prev coords
-        decisions_cf = -decisions # counterfactual decision
+        decisions_cf = -decisions # counterfactual/opposite (cf) decision [AT THIS TIME POINT]
         coords_cf    = prev_coords + decisions_cf # counterfactual coordinates: add the cf decision to the previous coordinate 
 
         return decisions_cf.astype(float), coords_cf.astype(float)
