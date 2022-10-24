@@ -541,7 +541,7 @@ class ParseCsv:
 
 def parse_csv(file_path, snt_version='standard', out_dir=None):
     
-    # directories
+    # out directories
     if out_dir is None: 
         out_dir = Path(os.getcwd())
     if not os.path.exists(out_dir):
@@ -561,8 +561,8 @@ def parse_csv(file_path, snt_version='standard', out_dir=None):
     # parse file
     parser = ParseCsv(file_path, snt_version=snt_version, verbose=0)
     snt, post = parser.run()
-    snt.to_excel(Path(f'{snt_dir}/snt_{parser.sub_id}.xlsx'), index=False)
-    post.to_excel(Path(f'{post_dir}/snt-posttask_{parser.sub_id}.xlsx'), index=True)
+    snt.to_excel(Path(f'{snt_dir}/SNT_{parser.sub_id}.xlsx'), index=False)
+    post.to_excel(Path(f'{post_dir}/SNT-posttask_{parser.sub_id}.xlsx'), index=True)
 
 
 #------------------------------------------------------------------------------------------
@@ -1118,11 +1118,12 @@ def compute_behavior(file_path, out_dir=None):
     computer  = ComputeBehavior(file=file_path) # leave defaults for now:
     computer.run()
     sub_id = Path(file_path).stem.split('_')[1]
-    computer.behavior.to_excel(Path(f'{out_dir}/snt_{sub_id}_behavior.xlsx'), index=False)
+    computer.behavior.to_excel(Path(f'{out_dir}/SNT_{sub_id}_behavior.xlsx'), index=False)
 
 
 def summarize_behavior(file_paths, out_dir=None):
     
+    # make out directory
     if out_dir is None: 
         out_dir = Path(f'{os.getcwd()}/preprocessed_behavior')
     if not os.path.exists(out_dir): 
@@ -1134,7 +1135,7 @@ def summarize_behavior(file_paths, out_dir=None):
     for s, file_path in enumerate(file_paths):
         print(f'Summarizing {s+1} of {len(file_paths)}', end='\r')
 
-        ### load in data ###
+        # load in
         file_path = Path(file_path)
         if file_path.suffix == '.xlsx':  behavior = pd.read_excel(file_path, engine='openpyxl')
         elif file_path.suffix == '.xls': behavior = pd.read_excel(file_path)
@@ -1146,32 +1147,41 @@ def summarize_behavior(file_paths, out_dir=None):
         summary.loc[0, 'sub_id'] = sub_id
         summary.loc[0, 'reaction_time_mean'] = np.mean(behavior['reaction_time'])
         summary.loc[0, 'reaction_time_std']  = np.std(behavior['reaction_time'])
-        summary.loc[0, 'missed_trials'] = np.sum(behavior['button_press'] == 0) # only missed trials for in-person
+        summary.loc[0, 'missed_trials']      = np.sum(behavior['button_press'] == 0) # only missed trials for in-person
         summary.loc[0, [f'decision_{d:02d}' for d in range(1,64)]] = behavior['decision'].values
 
-
+        # summarize behavior
         excl_cols = ['decision_num', 'dimension', 'scene_num', 'char_role_num', 
                      'char_decision_num', 'onset', 'button_press', 'decision', 'reaction_time', 'affil',
-                     'power','affil_coord','power_coord','affil_prev','power_prev',
-                     'affil_coord_prev','power_coord_prev','affil_cf','power_cf','affil_coord_cf','power_coord_cf']
-        cols = [c for c in behavior.columns if c not in excl_cols]
-
-        # means of all trials
-        for c,col in enumerate(cols):
+                     'power', 'affil_coord', 'power_coord', 'affil_prev', 'power_prev',
+                     'affil_coord_prev', 'power_coord_prev', 'affil_cf', 'power_cf', 'affil_coord_cf', 'power_coord_cf']
+        incl_cols = [c for c in behavior.columns if c not in excl_cols]
+        
+        # all trial mean: circular mean if a circular variable
+        for col in incl_cols:
             if 'angle' not in col: summary.loc[0, col + '_mean'] = np.mean(behavior[col])
             else:                  summary.loc[0, col + '_mean'] = pycircstat.mean(behavior[col])
 
-        # last trial only
-        end_df = pd.DataFrame(behavior.loc[62,cols].values).T
-        end_df.columns = [c + '_end' for c in cols]
+        # last trial's value only
+        end_df = pd.DataFrame(behavior.loc[62, incl_cols].values).T
+        end_df.columns = [c + '_end' for c in incl_cols]
 
         summary = pd.concat([summary, end_df], axis=1)
-
         summaries.append(summary)
 
     summary = pd.concat(summaries)
     summary.to_excel(Path(f'{out_dir}/SNT-behavior_n{summary.shape[0]}.xlsx'), index=False)
 
+
+# TODO:
+# want grand mean & character specific mean...
+# check all the clumn names - some are not supposed to be included
+# create a key for the different variables
+
+# helpers to: 
+# def make_directory()...?
+
+# change name to social_navigation_analysis?
 
 #------------------------------------------------------------------------------------------
 # compute mvpa stuff
@@ -1367,4 +1377,14 @@ def fake_data():
     fake_data = pd.DataFrame(np.hstack([dimension, char_role_nums, char_dec_nums, button_press, decisions]), 
                                  columns=['dimension', 'char_role_num', 'char_decision_num', 'button_press', 'decision'])
     return fake_data
+
+
+def load_data(file_path):
+
+    file_path = Path(file_path)
+    if file_path.suffix == '.xlsx':  behavior = pd.read_excel(file_path, engine='openpyxl')
+    elif file_path.suffix == '.xls': behavior = pd.read_excel(file_path)
+    elif file_path.suffix == '.csv': behavior = pd.read_csv(file_path)
+    sub_id = file_path.stem.split('_')[1]
+    return [sub_id, behavior]
 
