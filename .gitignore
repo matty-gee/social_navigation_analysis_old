@@ -47,3 +47,6 @@ Thumbs.db
 *ipynb_checkpoints
 
 *.csv
+*.xlsx
+*.log
+*.csv
