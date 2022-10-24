@@ -4,7 +4,7 @@
 
 ### Clone repository locally [recommended]
 
-[how to clone it]
+[TODO: add details on how to clone it]
 
 Suggested: set up a conda environment with dependencies already installed
 
