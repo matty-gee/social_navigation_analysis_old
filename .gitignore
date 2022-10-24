@@ -46,3 +46,4 @@ Thumbs.db
 *nilearn_cache
 *ipynb_checkpoints
 
+*.csv
