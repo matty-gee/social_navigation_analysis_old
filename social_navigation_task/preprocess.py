@@ -717,8 +717,9 @@ class ComputeBehavior:
                 
                 self.file_path = Path(file)
                 self.sub_id    = self.file_path.stem.split('_')[1] # expects a filename like 'snt_subid_*'
-                if not utils.is_numeric(self.sub_id): 
-                    raise Exception('Subject id isnt numeric; filename should have pattern: "snt_subid*.xlsx"')
+                
+                # if not utils.is_numeric(self.sub_id): 
+                #     raise Exception('Subject id isnt numeric; filename should have pattern: "snt_subid*.xlsx"')
 
                 if self.file_path.suffix == '.xlsx':  self.data = copy.deepcopy(pd.read_excel(self.file_path, engine='openpyxl'))
                 elif self.file_path.suffix == '.xls': self.data = copy.deepcopy(pd.read_excel(self.file_path))
@@ -1114,10 +1115,9 @@ def compute_behavior(file_path, out_dir=None):
         os.makedirs(out_dir)
     
     # compute behavior & output
-    file_path = Path(file_path)
-    computer  = ComputeBehavior(file_path) # leave defaults for now:
+    computer  = ComputeBehavior(file=file_path) # leave defaults for now:
     computer.run()
-    sub_id = file_path.stem.split('_')[1]
+    sub_id = Path(file_path).stem.split('_')[1]
     computer.behavior.to_excel(Path(f'{out_dir}/snt_{sub_id}_behavior.xlsx'), index=False)
 
 
@@ -1141,7 +1141,6 @@ def summarize_behavior(file_paths, out_dir=None):
         elif file_path.suffix == '.csv': behavior = pd.read_csv(file_path)
 
         sub_id = file_path.stem.split('_')[1] # expects a filename like 'snt_subid_*'
-        assert utils.is_numeric(sub_id), 'Subject id isnt numeric; check that filename has this pattern: "snt_subid*.xlsx"'
 
         summary = pd.DataFrame()
         summary.loc[0, 'sub_id'] = sub_id
