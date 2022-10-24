@@ -50,3 +50,9 @@ Thumbs.db
 *.xlsx
 *.log
 *.csv
+data/example_subject/snt_18001.log
+data/example_csvs/Adolescent_pilot.csv
+data/example_subject/snt_18001.log
+data/example_subject/snt_18001.xlsx
+data/example_subject/snt_18001_behavior.xlsx
+data/example_subject/snt_18001_timing.xlsx
