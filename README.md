@@ -2,7 +2,7 @@
 
 ## Installation
 
-### Clone repository locally
+### Clone repository locally [recommended]
 
 [how to clone it]
 
