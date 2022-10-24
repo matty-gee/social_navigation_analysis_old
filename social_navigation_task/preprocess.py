@@ -61,12 +61,13 @@ def parse_log(file_path, experimenter, output_timing=True, out_dir=None):
 
     # key presses differed across iterations of the task: 
     # - these versions had a fixed choice order across subjects
-    if experimenter == 'RT': 
+    experimenter = experimenter.lower()
+    if experimenter == 'rt': 
         keys = ['30','31'] # 1,2
         tr_key = '63'
-    elif experimenter in ['AF','RR']: 
+    elif experimenter in ['af','rr']: 
         keys = ['28','29']
-    elif experimenter in ['NR','CS','KB','FF']: 
+    elif experimenter in ['nr','cs','kb','ff']: 
         keys = ['29','30']
         tr_key = '54'
 
@@ -213,9 +214,20 @@ class ParseCsv:
         self.verbose    = verbose
         self.csv        = csv_path
         self.data       = pd.read_csv(csv_path)
-        self.sub_id     = self.data.prolific_id[0]
         self.task_ver   = self.data['task_ver'].values[0]
-        self.snt_ver    = snt_version
+        
+        if snt_version == 'adolescent_pilot':
+            self.snt_ver = 'adolescent'
+            try:
+                self.sub_id = self.data.initials.values[0]
+            except: 
+                try: 
+                    self.sub_id = self.data.prolific_id.values[0]
+                except: 
+                    self.sub_id = 'no_name'
+        else:
+            self.snt_ver = snt_version
+            self.sub_id  = self.data.prolific_id.values[0]
 
         self.clean()
 
@@ -275,7 +287,7 @@ class ParseCsv:
         
         # race judgments may need to be reworked
         if utils.substring_in_strings('race', self.data.columns):
-            race_cols = utils.find_pattern(self.data.columns, 'race_*_*')
+            race_cols = utils.get_strings_matching_pattern(self.data.columns, 'race_*_*')
             rename = {}
             for col in race_cols:
                 split_ = col.split('_')
@@ -284,7 +296,7 @@ class ParseCsv:
             
         return self.data
    
-    def run_pipeline(self):
+    def run(self):
 
         if 'snt_choices' not in self.data.columns:    
             print(f'{self.sub_id} does not have a "snt_choice" column. Exiting w/o preprocessing')
@@ -315,7 +327,7 @@ class ParseCsv:
         else:
             
             # the options alphabetically sorted to allow easy standardization
-            validated_decisions = validated_decisions[self.experiment]
+            validated_decisions = info.validated_decisions[self.snt_ver]
 
             snt_bps  = np.array([int(re.sub('["\]"]', '', d.split(':')[1])) for d in self.data['snt_choices'].values[0].split(',')]) # single column
             snt_opts = self.data['snt_opts_order'].values[0].split('","') # split on delimter
@@ -336,7 +348,7 @@ class ParseCsv:
                 self.snt.loc[q,:] = [q + 1, snt_bps[q], affl + pwr, affl, pwr]
 
             snt_rts = np.array([int(utils.remove_nonnumeric(rt)) for rt in self.data['snt_rts'].values[0].split(',')])
-            self.snt['reaction_time'] = snt_rts[np.array(validated_decisions['Slide_num']) - 1] / 1000
+            self.snt['reaction_time'] = snt_rts[np.array(validated_decisions['slide_num']) - 1] / 1000
         
             self.snt = info.decision_trials[['decision_num','dimension','scene_num','char_role_num','char_decision_num']].merge(self.snt, on='decision_num')
             convert_dict = {'decision_num': int,
@@ -385,7 +397,7 @@ class ParseCsv:
 
             # correct answers when questions are alphabetically sorted
             # {0: 'first', 1: 'second', 2: 'assistant', 3: 'newcomb', 4: 'hayworth', 5: 'neutral'}
-            if self.snt_ver.isin(['standard', 'schema']):
+            if self.snt_ver in ['standard', 'schema']:
                 corr = [1,4,5,4,5,0,0,0,4,1,3,3,1,4,5,3,1,0,2,5,5,2,2,2,3,3,0,1,2,4] 
                 # original? : [1,3,5,3,5,0,0,0,3,1,2,2,1,3,5,2,1,0,4,5,5,4,4,4,2,2,0,1,4,3]...????
             elif self.snt_ver == 'adolescent':
@@ -527,10 +539,11 @@ class ParseCsv:
     # process misc qs
 
 
-def parse_csv(file_path, out_dir=None):
+def parse_csv(file_path, snt_version='standard', out_dir=None):
     
     # directories
-    if out_dir is None: out_dir = Path(os.getcwd())
+    if out_dir is None: 
+        out_dir = Path(os.getcwd())
     if not os.path.exists(out_dir):
         print('Creating output directory')
         os.makedirs(out_dir)
@@ -546,8 +559,8 @@ def parse_csv(file_path, out_dir=None):
         os.makedirs(post_dir)   
 
     # parse file
-    parser = ParseCsv(file_path, verbose=0)
-    snt, post = parser.run_pipeline()
+    parser = ParseCsv(file_path, snt_version=snt_version, verbose=0)
+    snt, post = parser.run()
     snt.to_excel(Path(f'{snt_dir}/snt_{parser.sub_id}.xlsx'), index=False)
     post.to_excel(Path(f'{post_dir}/snt-posttask_{parser.sub_id}.xlsx'), index=True)
 
@@ -673,54 +686,15 @@ def define_char_coords(img):
 #------------------------------------------------------------------------------------------
 
 
-def fake_data():
-
-    # make better to test what certain patterns would look like in the behavior
-    dimension = np.array([['affil', 'affil', 'affil', 'power', 'affil', 'power', 'power',
-                        'affil', 'affil', 'power', 'affil', 'power', 'power', 'power',
-                        'neutral', 'neutral', 'affil', 'power', 'affil', 'power', 'power',
-                        'power', 'affil', 'power', 'power', 'power', 'affil', 'affil',
-                        'power', 'affil', 'power', 'power', 'power', 'affil', 'affil',
-                        'neutral', 'power', 'power', 'affil', 'affil', 'affil', 'affil',
-                        'power', 'affil', 'affil', 'power', 'affil', 'affil', 'affil',
-                        'affil', 'affil', 'power', 'power', 'power', 'affil', 'power',
-                        'affil', 'affil', 'power', 'power', 'power', 'power', 'affil']]).reshape(-1,1)
-    char_role_nums = np.array([[1, 1, 1, 1, 2, 2, 1, 1, 1, 2, 4, 2, 1, 1, 9, 9, 1, 2, 4, 2, 4, 4,
-                                4, 4, 1, 2, 2, 2, 1, 5, 5, 3, 5, 3, 3, 9, 3, 3, 3, 3, 5, 5, 5, 5,
-                                5, 5, 2, 2, 3, 2, 5, 5, 5, 4, 4, 4, 4, 4, 4, 3, 3, 3, 3]]).reshape(-1,1)
-    char_dec_nums = np.array([[1,2, 3, 4, 1, 2, 5, 6, 7,  3,  1,  4,  8,  9,  1,  2, 10,
-                                5,2, 6, 3, 4, 5, 6, 11,  7,  8,  9, 12,  1,  2,  1,  3,  2,
-                                3,3, 4, 5, 6, 7, 4, 5, 6,  7,  8,  9, 10, 11,  8, 12, 10,
-                                11,12, 7, 8, 9, 10, 11, 12,  9, 10, 11, 12]]).reshape(-1,1)
-    # fake decisions
-    button_press = np.array([np.random.choice([1,2 ]) for _ in range(63)]).reshape(-1,1)
-    decisions    = np.array([np.random.choice([-1,1]) for _ in range(63)]).reshape(-1,1)
-    fake_data = pd.DataFrame(np.hstack([dimension, char_role_nums, char_dec_nums, button_press, decisions]), 
-                                 columns=['dimension', 'char_role_num', 'char_decision_num', 'button_press', 'decision'])
-    return fake_data
-
-
 class ComputeBehavior:
 
     # TODO: can I clean some of this up by making some functions decorators?
 
-    def __init__(self, file, weight_types=False, decision_types=False, coord_types=False, out_dir=None):
+    def __init__(self, file, weight_types=False, decision_types=False, coord_types=False):
     
         from warnings import simplefilter
         simplefilter(action="ignore", category=pd.errors.PerformanceWarning) # fragmented df
         np.seterr(divide='ignore', invalid='ignore') # division by 0 in some of our operations
-
-        # out directory
-        if out_dir is False: 
-            self.out_dir = False
-        elif out_dir is None: 
-            self.out_dir = Path(f'{os.getcwd()}/Behavior')
-        else:
-            if '/Behavior' not in out_dir: 
-                self.out_dir = Path(f'{out_dir}/Behavior')
-        if self.out_dir is not False and not os.path.exists(self.out_dir):
-            print('Creating subdirectory for behavior')
-            os.makedirs(self.out_dir)
             
         #-------------
         # load in data
@@ -810,6 +784,7 @@ class ComputeBehavior:
     #--------
     # helpers
     #--------
+
 
     def check_input_shape(self, input_, exp_shapes):
         ''' at various points: input to class as well as character specific subsets '''
@@ -1048,10 +1023,7 @@ class ComputeBehavior:
         info.reset_index(inplace=True, drop=True)
         self.behavior.reset_index(inplace=True, drop=True)
         self.behavior = pd.concat([info, self.behavior], axis=1)
-        
-        if self.out_dir is not False:
-            self.behavior.to_excel(Path(f'{self.out_dir}/snt_{self.sub_id}_behavior.xlsx'), index=False)
-    
+
     
     def within_character(self):
         
@@ -1127,6 +1099,26 @@ class ComputeBehavior:
             self.behavior.loc[t_num-1, f'Q2_overlap{suffix}'] = overlap[1]
             self.behavior.loc[t_num-1, f'Q3_overlap{suffix}'] = overlap[2]
             self.behavior.loc[t_num-1, f'Q4_overlap{suffix}'] = overlap[3]
+
+
+def compute_behavior(file_path, out_dir=None):
+
+    # directories
+    if out_dir is None: 
+        out_dir = Path(f'{os.getcwd()}/Behavior')
+    else:
+        if '/Behavior' not in out_dir: 
+            out_dir = Path(f'{out_dir}/Behavior')
+    if out_dir is not False and not os.path.exists(out_dir):
+        print('Creating subdirectory for behavior')
+        os.makedirs(out_dir)
+    
+    # compute behavior & output
+    file_path = Path(file_path)
+    computer  = ComputeBehavior(file_path) # leave defaults for now:
+    computer.run()
+    sub_id = file_path.stem.split('_')[1]
+    computer.behavior.to_excel(Path(f'{out_dir}/snt_{sub_id}_behavior.xlsx'), index=False)
 
 
 def summarize_behavior(file_paths, out_dir=None):
@@ -1345,3 +1337,35 @@ def compute_rdvs(file_path, metric='euclidean', output_all=True, out_dir=None):
             # output
             rdvs.to_excel(Path(f'{out_dir}/snt_{sub_id}{outname}_rdvs.xlsx'), index=False)
   
+
+#------------------------------------------------------------------------------------------
+# helpers
+#------------------------------------------------------------------------------------------
+
+
+def fake_data():
+
+    # make better to test what certain patterns would look like in the behavior
+    dimension = np.array([['affil', 'affil', 'affil', 'power', 'affil', 'power', 'power',
+                        'affil', 'affil', 'power', 'affil', 'power', 'power', 'power',
+                        'neutral', 'neutral', 'affil', 'power', 'affil', 'power', 'power',
+                        'power', 'affil', 'power', 'power', 'power', 'affil', 'affil',
+                        'power', 'affil', 'power', 'power', 'power', 'affil', 'affil',
+                        'neutral', 'power', 'power', 'affil', 'affil', 'affil', 'affil',
+                        'power', 'affil', 'affil', 'power', 'affil', 'affil', 'affil',
+                        'affil', 'affil', 'power', 'power', 'power', 'affil', 'power',
+                        'affil', 'affil', 'power', 'power', 'power', 'power', 'affil']]).reshape(-1,1)
+    char_role_nums = np.array([[1, 1, 1, 1, 2, 2, 1, 1, 1, 2, 4, 2, 1, 1, 9, 9, 1, 2, 4, 2, 4, 4,
+                                4, 4, 1, 2, 2, 2, 1, 5, 5, 3, 5, 3, 3, 9, 3, 3, 3, 3, 5, 5, 5, 5,
+                                5, 5, 2, 2, 3, 2, 5, 5, 5, 4, 4, 4, 4, 4, 4, 3, 3, 3, 3]]).reshape(-1,1)
+    char_dec_nums = np.array([[1,2, 3, 4, 1, 2, 5, 6, 7,  3,  1,  4,  8,  9,  1,  2, 10,
+                                5,2, 6, 3, 4, 5, 6, 11,  7,  8,  9, 12,  1,  2,  1,  3,  2,
+                                3,3, 4, 5, 6, 7, 4, 5, 6,  7,  8,  9, 10, 11,  8, 12, 10,
+                                11,12, 7, 8, 9, 10, 11, 12,  9, 10, 11, 12]]).reshape(-1,1)
+    # fake decisions
+    button_press = np.array([np.random.choice([1,2 ]) for _ in range(63)]).reshape(-1,1)
+    decisions    = np.array([np.random.choice([-1,1]) for _ in range(63)]).reshape(-1,1)
+    fake_data = pd.DataFrame(np.hstack([dimension, char_role_nums, char_dec_nums, button_press, decisions]), 
+                                 columns=['dimension', 'char_role_num', 'char_decision_num', 'button_press', 'decision'])
+    return fake_data
+

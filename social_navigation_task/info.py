@@ -3,8 +3,7 @@ from pathlib import Path
 import openpyxl
 
 pkg_dir      = str(Path(__file__).parent.absolute())
-example_log  = str(Path(f'{pkg_dir}/../data/example_subject/snt_18001.log'))
-example_xlsx = str(Path(f'{pkg_dir}/../data/example_subject/snt_18001.xlsx'))
+example_log  = str(Path(f'{pkg_dir}/../data/example_log/snt_18001.log'))
 
 # decision info:
 try: 
