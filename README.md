@@ -2,15 +2,15 @@
 
 ## Installation
 
-### Clone repository locally
+### Clone repository locally [recommended]
 
-[how to clone it]
+[TODO: add details on how to clone it]
 
 Suggested: set up a conda environment with dependencies already installed
 
 From the directory you cloned: 
 ```bash
-conda env create f -env.yml # will create a conda env called 'social_navigation_task'
+conda env create -f env.yml # will create a conda env called 'social_navigation_task'
 conda activate social_navigation_task # activates env
 ```
 [TODO] Otherwise, install the packages manually from requirements.txt
