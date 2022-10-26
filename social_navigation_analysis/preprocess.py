@@ -8,18 +8,157 @@ import sklearn as sk
 import pycircstat
 from shapely import geometry
 from PIL import Image
+from sklearn.feature_extraction import image
+from sklearn.cluster import spectral_clustering
 import copy
+import json
+from datetime import date
 
 import info 
 import utils
 
 pkg_dir = str(Path(__file__).parent.absolute())
 
-# TODO: add little wrapper functions to let users easily run a bunch of subjects through
 
 #------------------------------------------------------------------------------------------
 # parse snt logs & csvs
 #------------------------------------------------------------------------------------------
+
+
+def format_txt_as_csv(txt_file, out_dir):
+
+    ''' for converting the VTech txt files into csv files that CsvParser will recognize'''
+
+    with open(txt_file) as f:
+        data = json.load(f)
+        exp_data = data['metadata']['social_task_data']
+
+    posttask_df = pd.DataFrame()
+    posttask_df.loc[0, 'prolific_id'] = [exp_data['prolific_pid']]
+    date = txt_file.split('/')[-1].split('.')[2].split('T')[0]
+    date = date[0:4] + '-' + date[4:6] + '-' + date[6:]
+    posttask_df.loc[0, 'date'] = date
+
+    #-----------------
+    # task info
+    #-----------------
+
+    posttask_df.loc[0, 'task_ver'] = exp_data['version']
+
+    # button presses
+    bps = exp_data['narrative_resps'].split(',')
+    bps = [utils.remove_nonnumeric(b) for b in bps]
+    posttask_df['snt_choices'] = str([f'{i+1}:{b}' for i, b in enumerate(bps)])
+
+    # options
+    for i, o in enumerate(exp_data['narrative_opts_order'].split('],[')):
+        opts_ = o.split('","')
+        opt1 = utils.remove_nontext(re.sub('[\\\[\]"]', '', opts_[0]))
+        opt2 = utils.remove_nontext(re.sub('[\\\[\]"]', '', opts_[1]))
+        if i == 0: opts = f'"{i+1};{opt1};{opt2}"'
+        else:      opts = f'{opts},"{i+1};{opt1};{opt2}"'
+        
+    posttask_df.loc[0, 'snt_opts_order'] = opts
+    posttask_df.loc[0, 'snt_rts'] = exp_data['narrative_rts']
+
+    #-----------------
+    #  characters
+    #-----------------
+
+    if 'F' in exp_data['version']: 
+        order = {'Maya':'first','Chris':'second','Anthony':'assistant','Newcomb':'powerful','Hayworth':'boss','Kayce':'neutral'}
+    else:          
+        order = {'Chris':'first','Maya':'second','Kayce':'assistant','Newcomb':'powerful','Hayworth':'boss','Anthony':'neutral'}   
+
+    for name, role in order.items(): 
+        posttask_df.loc[0, f'character_info.{role}.name'] = name
+        posttask_df.loc[0, f'character_info.{role}.img']  = exp_data['character_imgs'][name]
+
+    #-----------------
+    # memory
+    #-----------------
+
+    ques  = re.sub('[\[\]"]', '', exp_data['memory_quests_order']).split(',')
+    resps = re.sub('[\[\]"]', '', exp_data['memory_resps']).split(',')
+    rts   = re.sub('[\[\]"]', '', exp_data['memory_rts']).split(',')
+
+    memory = []
+    mem_colnames = []
+    for n in range(30):
+        mem_colnames.extend([f'memory.{n+1}.question', f'memory.{n+1}.resp', f'memory.{n+1}.rt'])
+        memory.extend([ques[n], order[resps[n]], rts[n]])
+    memory_df = pd.DataFrame(np.array(memory).reshape(1,-1), columns=mem_colnames)
+
+    #-----------------
+    # dots
+    #-----------------
+
+    resps = exp_data['dots_resps'].split('],')
+    dots_colnames = []
+    dots = []
+    for resp in resps:
+        resp_ = re.sub('[\[\]"]', '', resp).split(',')
+        name = resp_[0].split(':')[0]
+        dots_colnames.extend([f"dots.{name}.affil", f"dots.{name}.power"])
+        dots.extend([resp_[1].split(':')[1],resp_[2].split(':')[1]])
+    dots_df = pd.DataFrame(np.array(dots).reshape(1,-1), columns=dots_colnames)
+
+    #-------------------
+    #  judgments
+    #-------------------
+
+    judgment_order = exp_data['perception_character_order'] # theres a randomized order 
+    rating_cols    = ['liking', 'competence', 'similarity']
+
+    judgments = []
+    judge_colnames = []
+    for col in rating_cols: 
+
+        resps_ = re.sub('[\[!@#$\]]', '', exp_data[f'{col}_resps']) # remove brackets
+        resps  = [int(r) for r in resps_.split(',')]
+        rts_   = re.sub('[\[!@#$\]]', '', exp_data[f'{col}_rts'])
+        rts    = [int(r) for r in rts_.split(',')]
+        for r, name in enumerate(judgment_order): 
+            judge_colnames.extend([f'judgments.{order[name]}.{col}.resp', f'judgments.{order[name]}.{col}.rt'])
+            judgments.extend([resps[r], rts[r]])
+
+    judgment_df = pd.DataFrame(np.array(judgments).reshape(1,-1), columns=judge_colnames)
+
+    #-----------------
+    # emotions
+    #-----------------
+
+    emotions = []
+    emot_colnames = []
+    emotion_resps = exp_data['emotion_resps'].split('],[')
+    for r, row in enumerate(emotion_resps):
+        row = re.sub('[\[!@#$"\]]', '', row)
+        resps_ = np.array(row.split(',')).reshape(-2,2).T
+        emotions.extend(resps_[1,:])
+        emot_colnames.extend([f'judgments.{order[judgment_order[r]]}.{j}.resp' for j in resps_[0,:]])
+
+    emotion_df = pd.DataFrame(np.array(emotions).reshape(1,-1), columns=emot_colnames)
+
+    #-----------------
+    # iq
+    #-----------------
+
+    ques = re.sub('[\[\]"]', '', exp_data['iq_quests']).split(',')
+    resps = re.sub('[\[\]"]', '', exp_data['iq_resps']).split(',')
+    iq_colnames = []
+    iq_resps = []
+    for t in range(len(ques)):
+        iq_colnames.append(f'iq.{ques[t]}.resp')
+        iq_resps.append(resps[t])
+    iq_df = pd.DataFrame(np.array(iq_resps).reshape(1,-1), columns=iq_colnames)
+
+
+    #-----------------
+    # combine 
+    #-----------------
+
+    posttask_df = pd.concat([posttask_df, memory_df, dots_df, judgment_df, emotion_df, iq_df], axis=1)
+    posttask_df.to_csv(f"{out_dir}/SNT_{exp_data['prolific_pid']}.csv", index=False)
 
 
 def parse_log(file_path, experimenter, output_timing=True, out_dir=None): 
@@ -43,19 +182,20 @@ def parse_log(file_path, experimenter, output_timing=True, out_dir=None):
     # directories
     if out_dir is None: out_dir = Path(os.getcwd())
     if not os.path.exists(out_dir):
-        print('Creating output directory')
+        print(f'Creating output directory: {out_dir}')
         os.makedirs(out_dir)
 
     xlsx_dir = Path(f'{out_dir}/Organized')
     if not os.path.exists(xlsx_dir):
-        print('Creating subdirectory for organized data')
+        print(f'Creating subdirectory for organized data: {xlsx_dir}')
         os.makedirs(xlsx_dir)
 
     timing_dir = Path(f'{out_dir}/Timing/')
     if output_timing & (not os.path.exists(timing_dir)):
-        print('Creating subdirectory for fmri timing files')
+        print(f'Creating subdirectory for fmri timing files: {timing_dir}')
         os.makedirs(timing_dir)
 
+    # load in data
     file_path = Path(file_path)
     sub_id = re.split('_|\.', file_path.name)[1] # expects a file w/ snt_subid
 
@@ -133,9 +273,9 @@ def parse_log(file_path, experimenter, output_timing=True, out_dir=None):
         choice_data.loc[t, ['decision_num','onset','button_press','decision','affil','power','reaction_time']] = [t+1, slide_onset, bp, dec] + dim_decs + [rt/1000]
 
     choice_data = merge_choice_data(choice_data)
-    choice_data.to_excel(Path(f'{xlsx_dir}/snt_{sub_id}.xlsx'), index=False)
+    choice_data.to_excel(Path(f'{xlsx_dir}/SNT_{sub_id}.xlsx'), index=False)
 
-
+    # TODO: add rt to this...
     if output_timing:
 
         onsets = []
@@ -177,7 +317,7 @@ def parse_log(file_path, experimenter, output_timing=True, out_dir=None):
         assert timing_df['offset'].values[-1] < 1600, f'WARNING: {sub_id} timing seems too long'
         assert np.sum(timing_df['duration'] > 11) == 63, f'WARNING: {sub_id} number of decisions are not 63'
 
-        timing_df.to_excel(Path(f'{timing_dir}/snt_{sub_id}_timing.xlsx'), index=False)
+        timing_df.to_excel(Path(f'{timing_dir}/SNT_{sub_id}_timing.xlsx'), index=False)
 
 
 def merge_choice_data(choice_data, decision_cols=None):
@@ -204,10 +344,6 @@ def merge_choice_data(choice_data, decision_cols=None):
 
 
 class ParseCsv:
-    '''
-        SUMMARY
-        [By Matthew G. Schafer; <mattygschafer@gmail.com>; github @matty-gee; 2020ish]
-    '''
     
     def __init__(self, csv_path, snt_version='standard', verbose=0):
 
@@ -299,7 +435,7 @@ class ParseCsv:
     def run(self):
 
         if 'snt_choices' not in self.data.columns:    
-            print(f'{self.sub_id} does not have a "snt_choice" column. Exiting w/o preprocessing')
+            print(f'Subject ({self.sub_id}) does not have a "snt_choice" column. Exiting without parsing.')
             return 
         else: 
             self.task_functions = {'snt': self.process_snt,
@@ -329,7 +465,7 @@ class ParseCsv:
             # the options alphabetically sorted to allow easy standardization
             validated_decisions = info.validated_decisions[self.snt_ver]
 
-            snt_bps  = np.array([int(re.sub('["\]"]', '', d.split(':')[1])) for d in self.data['snt_choices'].values[0].split(',')]) # single column
+            snt_bps  = np.array([int(utils.remove_nonnumeric(d.split(':')[1])) for d in self.data['snt_choices'].values[0].split(',')]) # single column
             snt_opts = self.data['snt_opts_order'].values[0].split('","') # split on delimter
             self.snt = pd.DataFrame(columns=['decision_num', 'button_press', 'decision', 'affil', 'power'])
 
@@ -542,8 +678,7 @@ class ParseCsv:
 def parse_csv(file_path, snt_version='standard', out_dir=None):
     
     # out directories
-    if out_dir is None: 
-        out_dir = Path(os.getcwd())
+    if out_dir is None: out_dir = Path(os.getcwd())
     if not os.path.exists(out_dir):
         print('Creating output directory')
         os.makedirs(out_dir)
@@ -560,9 +695,12 @@ def parse_csv(file_path, snt_version='standard', out_dir=None):
 
     # parse file
     parser = ParseCsv(file_path, snt_version=snt_version, verbose=0)
-    snt, post = parser.run()
-    snt.to_excel(Path(f'{snt_dir}/SNT_{parser.sub_id}.xlsx'), index=False)
-    post.to_excel(Path(f'{post_dir}/SNT-posttask_{parser.sub_id}.xlsx'), index=True)
+    try: 
+        snt, post = parser.run()
+        snt.to_excel(Path(f'{snt_dir}/SNT_{parser.sub_id}.xlsx'), index=False)
+        post.to_excel(Path(f'{post_dir}/SNT-posttask_{parser.sub_id}.xlsx'), index=True)
+    except: 
+        return 
 
 
 #------------------------------------------------------------------------------------------
@@ -570,14 +708,14 @@ def parse_csv(file_path, snt_version='standard', out_dir=None):
 #------------------------------------------------------------------------------------------
 
 
+def load_image(img):
+    return Image.open(img)
+
+
 def process_dots(img):
     img = load_image(img)
     recon_img, coords_df = define_char_coords(img)
     return recon_img, coords_df
-
-
-def load_image(img):
-    return Image.open(img)
 
 
 def get_dot_coords(img, plot=False):
@@ -592,26 +730,24 @@ def get_dot_coords(img, plot=False):
         # segment image
         # https://scipy-lectures.org/advanced/image_processing/auto_examples/plot_spectral_clustering.html#sphx-glr-advanced-image-processing-auto-examples-plot-spectral-clustering-py
         # Convert the image into a graph with the value of the gradient on the edges
-        graph = sk.feature_extraction.image.img_to_graph(binary_img, mask=recon_img.astype(bool))
+        graph = image.img_to_graph(binary_img, mask=recon_img.astype(bool))
 
         # Take a decreasing function of the gradient: we take it weakly
         # dependant from the gradient the segmentation is close to a voronoi
         graph.data = np.exp(-graph.data / graph.data.std())
 
-        try: 
-             # Force the solver to be arpack, since amg is numerically unstable
-            labels   = sk.cluster.spectral_clustering(graph, n_clusters=4)
-            label_im = -np.ones(binary_img.shape)
-            label_im[recon_img.astype(bool)] = labels
+         # Force the solver to be arpack, since amg is numerically unstable
+        labels   = spectral_clustering(graph, n_clusters=4)
+        label_im = -np.ones(binary_img.shape)
+        label_im[recon_img.astype(bool)] = labels
 
-            # re-binarize image
-            dot_im = label_im > 0
-            ys, xs = np.where(dot_im == 1) # reversed
-            x, y = xs[int(round(len(xs)/2))], ys[int(round(len(ys)/2))]
+        # re-binarize image
+        dot_im = label_im > 0
+        ys, xs = np.where(dot_im == 1) # reversed
+        x, y = xs[int(round(len(xs)/2))], ys[int(round(len(ys)/2))]
 
-        except: 
             
-            x, y = np.nan, np.nan
+            #x, y = np.nan, np.nan
     
     if plot:
 
@@ -625,7 +761,7 @@ def define_char_coords(img):
 
     # note: the powerpoint was hardcoded with the character name, not the role (which varied across versions)
     width, height = img.size
-    rgb_img = img.convert('RGB') 
+    rgb_img       = img.convert('RGB') 
 
     # character colors
     character_colors = {
@@ -664,10 +800,10 @@ def define_char_coords(img):
     coords = np.array([get_dot_coords(img_) for _, img_ in character_maps.items()]).astype(float)
 
     # scale coordinates between -1 & 1
-    coords_norm = np.zeros_like(coords)
+    coords_norm      = np.zeros_like(coords)
     coords_norm[:,0] = (coords[:,0] - (w * .1) - (.5 * h))/ (.5 * h) # adjust to get rid of text space, then scale
     coords_norm[:,1] = (.5 * h - coords[:,1])/ (.5 * h)
-    coords_norm = coords_norm.reshape(1,-1)
+    coords_norm      = coords_norm.reshape(1,-1)
 
     # reconstructed image
     recon_img = (character_maps['olivia'] + character_maps['peter'] + character_maps['newcomb'] + character_maps['hayworth'] + character_maps['anthony'] + character_maps['kayce'])
@@ -990,15 +1126,16 @@ class ComputeBehavior:
             return [np.nan, np.nan, np.nan, np.nan]
         
         
-    #----------
-    # run stuff
-    #----------
+    #--------------
+    # run functions
+    #--------------
     
     
     def run(self):
-        
+                
+
         self.behavior = pd.DataFrame()
-        
+
         # diff types of assumptins about space
         self._types = [[dt,wt,ct] for dt in list(self.decision_types.keys()) for wt in list(self.weight_types.keys()) for ct in list(self.coord_types.keys())]
         for self._dt, self._wt, self._ct in self._types:
@@ -1010,10 +1147,9 @@ class ComputeBehavior:
                 char_dfs.append(self.characters[self._character]['behavior'])
             
             # combine
-            char_df = pd.concat(char_dfs, axis=0).sort_index() 
-            char_df.reset_index(inplace=True, drop=True)
-            self.behavior = pd.concat([self.behavior, char_df], axis=1) # add as columns
-            self.behavior['char_decision_num'] = self.data['char_decision_num']
+            char_dfs = pd.concat(char_dfs, axis=0).sort_index() 
+            char_dfs.reset_index(inplace=True, drop=True)
+            self.behavior = pd.concat([self.behavior, char_dfs], axis=1) # add as columns
             
             # all characters
             self.across_characters()
@@ -1024,6 +1160,9 @@ class ComputeBehavior:
         info.reset_index(inplace=True, drop=True)
         self.behavior.reset_index(inplace=True, drop=True)
         self.behavior = pd.concat([info, self.behavior], axis=1)
+
+        # clean up empty columns
+        self.behavior = self.behavior.replace(r'^s*$', float('NaN'), regex = True)
 
     
     def within_character(self):
@@ -1076,7 +1215,8 @@ class ComputeBehavior:
         '''  variables across characters '''
 
         suffix = f'{self._dt}{self._wt}{self._ct}'
-        coords = self.behavior.loc[:, [f'affil_coord{suffix}', f'power_coord{suffix}', 'char_decision_num']].values
+        coords = np.hstack([self.behavior.loc[:, [f'affil_coord{suffix}', f'power_coord{suffix}']].values,
+                            self.data['char_decision_num'].values.reshape(-1,1)])
 
         for t_num in range(1, 64):
 
@@ -1102,7 +1242,7 @@ class ComputeBehavior:
             self.behavior.loc[t_num-1, f'Q4_overlap{suffix}'] = overlap[3]
 
 
-def compute_behavior(file_path, out_dir=None):
+def compute_behavior(file_path, weight_types=False, decision_types=False, coord_types=False, out_dir=None):
 
     # directories
     if out_dir is None: 
@@ -1115,73 +1255,56 @@ def compute_behavior(file_path, out_dir=None):
         os.makedirs(out_dir)
     
     # compute behavior & output
-    computer  = ComputeBehavior(file=file_path) # leave defaults for now:
+    computer  = ComputeBehavior(file=file_path, weight_types=weight_types, decision_types=decision_types, coord_types=coord_types) # leave defaults for now:
     computer.run()
     sub_id = Path(file_path).stem.split('_')[1]
     computer.behavior.to_excel(Path(f'{out_dir}/SNT_{sub_id}_behavior.xlsx'), index=False)
 
 
+# TODO: create a key for the different variables
 def summarize_behavior(file_paths, out_dir=None):
     
-    # make out directory
-    if out_dir is None: 
-        out_dir = Path(f'{os.getcwd()}/preprocessed_behavior')
-    if not os.path.exists(out_dir): 
-        os.mkdir(out_dir)
+    # out directory
+    if out_dir is None: out_dir = os.getcwd()
+    if not os.path.exists(out_dir): os.mkdir(out_dir)
 
-    summaries = []
+    with warnings.catch_warnings():
 
-    file_paths = sorted((f for f in file_paths if (not f.startswith(".")) & ("~$" not in f)), key=str.lower) # ignore hidden files & sort alphabetically
-    for s, file_path in enumerate(file_paths):
-        print(f'Summarizing {s+1} of {len(file_paths)}', end='\r')
+        summaries = []
 
-        # load in
-        file_path = Path(file_path)
-        if file_path.suffix == '.xlsx':  behavior = pd.read_excel(file_path, engine='openpyxl')
-        elif file_path.suffix == '.xls': behavior = pd.read_excel(file_path)
-        elif file_path.suffix == '.csv': behavior = pd.read_csv(file_path)
+        file_paths = sorted((f for f in file_paths if (not f.startswith(".")) & ("~$" not in f)), key=str.lower) # ignore hidden files & sort alphabetically
+        for s, file_path in enumerate(file_paths):
+            print(f'Summarizing {s+1} of {len(file_paths)}', end='\r')
 
-        sub_id = file_path.stem.split('_')[1] # expects a filename like 'snt_subid_*'
+            # load in
+            sub_id, behavior = load_data(file_path)
+            summary = pd.DataFrame()
+            summary.loc[0, ['sub_id', 'reaction_time_mean', 'reaction_time_std', 'missed_trials']] = [sub_id, np.mean(behavior['reaction_time']), np.std(behavior['reaction_time']), np.sum(behavior['button_press'] == 0)]
+            
+            # summarize behavior
+            excl_cols = ['decision_num', 'dimension', 'scene_num', 'char_role_num', 
+                        'char_decision_num', 'onset', 'button_press', 'decision', 'reaction_time', 'affil',
+                        'power', 'affil_coord', 'power_coord', 'affil_prev', 'power_prev',
+                        'affil_coord_prev', 'power_coord_prev', 'affil_cf', 'power_cf', 'affil_coord_cf', 'power_coord_cf']
+            incl_cols = [c for c in behavior.columns if c not in excl_cols]
+            
+            # all trial mean: circular mean if a circular variable
+            for col in incl_cols:
+                if 'angle' not in col: summary.loc[0, col + '_mean'] = np.nanmean(behavior[col])
+                else:                  summary.loc[0, col + '_mean'] = pycircstat.mean(behavior[col]) # shouldnt be any nans?
 
-        summary = pd.DataFrame()
-        summary.loc[0, 'sub_id'] = sub_id
-        summary.loc[0, 'reaction_time_mean'] = np.mean(behavior['reaction_time'])
-        summary.loc[0, 'reaction_time_std']  = np.std(behavior['reaction_time'])
-        summary.loc[0, 'missed_trials']      = np.sum(behavior['button_press'] == 0) # only missed trials for in-person
-        summary.loc[0, [f'decision_{d:02d}' for d in range(1,64)]] = behavior['decision'].values
+            # last trial's value only
+            end_df = pd.DataFrame(behavior.loc[62, incl_cols].values).T
+            end_df.columns = [c + '_end' for c in incl_cols]
+            summary = pd.concat([summary, end_df], axis=1)
 
-        # summarize behavior
-        excl_cols = ['decision_num', 'dimension', 'scene_num', 'char_role_num', 
-                     'char_decision_num', 'onset', 'button_press', 'decision', 'reaction_time', 'affil',
-                     'power', 'affil_coord', 'power_coord', 'affil_prev', 'power_prev',
-                     'affil_coord_prev', 'power_coord_prev', 'affil_cf', 'power_cf', 'affil_coord_cf', 'power_coord_cf']
-        incl_cols = [c for c in behavior.columns if c not in excl_cols]
-        
-        # all trial mean: circular mean if a circular variable
-        for col in incl_cols:
-            if 'angle' not in col: summary.loc[0, col + '_mean'] = np.mean(behavior[col])
-            else:                  summary.loc[0, col + '_mean'] = pycircstat.mean(behavior[col])
+            # add in all decisions
+            summary.loc[0, [f'decision_{d:02d}' for d in range(1,64)]] = behavior['decision'].values
+            summaries.append(summary)
 
-        # last trial's value only
-        end_df = pd.DataFrame(behavior.loc[62, incl_cols].values).T
-        end_df.columns = [c + '_end' for c in incl_cols]
+        summary = pd.concat(summaries)
+        summary.to_excel(Path(f'{out_dir}/SNT-behavior_n{summary.shape[0]}.xlsx'), index=False)
 
-        summary = pd.concat([summary, end_df], axis=1)
-        summaries.append(summary)
-
-    summary = pd.concat(summaries)
-    summary.to_excel(Path(f'{out_dir}/SNT-behavior_n{summary.shape[0]}.xlsx'), index=False)
-
-
-# TODO:
-# want grand mean & character specific mean...
-# check all the clumn names - some are not supposed to be included
-# create a key for the different variables
-
-# helpers to: 
-# def make_directory()...?
-
-# change name to social_navigation_analysis?
 
 #------------------------------------------------------------------------------------------
 # compute mvpa stuff
@@ -1288,7 +1411,7 @@ def compute_rdvs(file_path, metric='euclidean', output_all=True, out_dir=None):
     if output_all: 
         suffixes = utils.flatten_nested_lists([[f'{wt}{dt}' for dt in ['','_prev','_cf'] for wt in ['', '_linear-decay', '_expon-decay']]]) 
     else: 
-        suffixes = ''
+        suffixes = [''] # just standard
         
     for sx in suffixes: 
 
@@ -1304,10 +1427,10 @@ def compute_rdvs(file_path, metric='euclidean', output_all=True, out_dir=None):
             rdvs.loc[:,'reaction_time'] = utils.ut_vec_pw_dist(np.nan_to_num(behav['reaction_time'], 0))
             rdvs.loc[:,'button_press']  = utils.ut_vec_pw_dist(np.array(behav['button_press']))
 
-            ######################################################
+            #---------------------------------------------------------
             # relative distances between locations
             # - can try other distances: e.g., manhattan which would be path distance
-            ######################################################
+            #---------------------------------------------------------
 
             metric = 'euclidean'
             rdvs.loc[:,'place_2d']       = utils.ut_vec_pw_dist(coords, metric=metric)
@@ -1320,11 +1443,11 @@ def compute_rdvs(file_path, metric='euclidean', output_all=True, out_dir=None):
             #     rdvs['place_2d_exp_decay', utils.ut_vec_pw_dist(behavior[['affil_coord_exp-decay', 'power_coord_exp-decay']]))
             #     rdvs['place_2d_exp_decay_scaled', utils.ut_vec_pw_dist(behavior[['affil_coord_exp-decay_scaled', 'power_coord_exp-decay_scaled']]))
 
-            ######################################################
+            #---------------------------------------------------------
             # distances from ref points (poi - ref)
             # -- ori to poi vector (poi - [0,0]) 
             # -- pov to poi vector (poi - [6,0]) 
-            ######################################################
+            #---------------------------------------------------------
 
             for origin, ori in {'neu':[0,0], 'pov':[6,0]}.items():
 
@@ -1334,9 +1457,9 @@ def compute_rdvs(file_path, metric='euclidean', output_all=True, out_dir=None):
                 rdvs.loc[:,f'angular_distance_{origin}']  = utils.symm_mat_to_ut_vec(utils.angular_distance(V)) 
                 rdvs.loc[:,f'cosine_distance_{origin}']   = utils.symm_mat_to_ut_vec(utils.cosine_distance(V))
 
-            ######################################################
+            #---------------------------------------------------------
             # others
-            ######################################################
+            #---------------------------------------------------------
 
             # decision directon: +1 or -1
             direction_rdv = utils.ut_vec_pw_dist(behav['decision'].values.reshape(-1,1))
@@ -1382,9 +1505,8 @@ def fake_data():
 def load_data(file_path):
 
     file_path = Path(file_path)
-    if file_path.suffix == '.xlsx':  behavior = pd.read_excel(file_path, engine='openpyxl')
-    elif file_path.suffix == '.xls': behavior = pd.read_excel(file_path)
-    elif file_path.suffix == '.csv': behavior = pd.read_csv(file_path)
+    if file_path.suffix == '.xlsx':  data = pd.read_excel(file_path, engine='openpyxl')
+    elif file_path.suffix == '.xls': data = pd.read_excel(file_path)
+    elif file_path.suffix == '.csv': data = pd.read_csv(file_path)
     sub_id = file_path.stem.split('_')[1]
-    return [sub_id, behavior]
-
+    return [sub_id, data]

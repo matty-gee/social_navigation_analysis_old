@@ -492,3 +492,24 @@ def remove_diag(arr):
     arr = arr.copy()
     np.fill_diagonal(arr, np.nan)
     return arr[~np.isnan(arr)].reshape(arr.shape[0], arr.shape[1] - 1)
+
+
+#--------------------------------------------------------------------------------------------
+#--------------------------------------------------------------------------------------------
+
+
+def merge_dfs(df_list, on=None, how='inner'):
+
+    df = pd.read_excel(df_list[0])
+    for other_file in df_list[1:]:
+        df_other = pd.read_excel(other_file)
+        if on is None: # find duplicates
+            on = list(np.intersect1d(df.columns, df_other.columns)) 
+            df[on] = df[on].astype(df_other[on].dtypes) # ensure types are same
+        df = pd.merge(df, df_other, on=on, how=how)
+        
+    return df
+
+
+def move_cols_to_front(df, cols):
+    return df[cols + [c for c in df if c not in cols]]

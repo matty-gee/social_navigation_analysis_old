@@ -46,10 +46,10 @@ class TestBehavior(unittest.TestCase):
         fake_data    = pd.DataFrame(np.hstack([dimension, char_role_nums, char_dec_nums, button_press, decisions]), 
                                      columns=['dimension', 'char_role_num', 'char_decision_num', 'button_press', 'decision'])
         return fake_data
-        
+     
     iters    = 5
     n_trials = 12
-    compute = preprc.ComputeBehavior(file=None)
+    compute = preprc.ComputeBehavior(file=None)   
 
     #------------------
     # test input/output
