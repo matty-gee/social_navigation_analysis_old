@@ -14,14 +14,14 @@ import copy
 import json
 from datetime import date
 
+# my own modules
 import info 
 import utils
-
 pkg_dir = str(Path(__file__).parent.absolute())
 
 
 #------------------------------------------------------------------------------------------
-# parse snt logs & csvs
+# parse snt logs, txts & csvs
 #------------------------------------------------------------------------------------------
 
 
@@ -699,6 +699,8 @@ def parse_csv(file_path, snt_version='standard', out_dir=None):
         snt, post = parser.run()
         snt.to_excel(Path(f'{snt_dir}/SNT_{parser.sub_id}.xlsx'), index=False)
         post.to_excel(Path(f'{post_dir}/SNT-posttask_{parser.sub_id}.xlsx'), index=True)
+        
+        return f'{snt_dir}/SNT_{parser.sub_id}.xlsx' # filename
     except: 
         return 
 
@@ -706,7 +708,13 @@ def parse_csv(file_path, snt_version='standard', out_dir=None):
 #------------------------------------------------------------------------------------------
 # parse snt dots jpgs
 #------------------------------------------------------------------------------------------
-
+#---------------------------------------------------------------
+# TODO maybe write this as a class too:
+# class ProcessDots:
+# def load_image(self):
+# def process_dots(self):
+# def get_dot_coords(self):
+# def define_char_coords(self):
 
 def load_image(img):
     return Image.open(img)
@@ -918,9 +926,9 @@ class ComputeBehavior:
         self.coord_types = {k: self.coord_types[k] for k in cts}
         
 
-    #--------
+    #---------------------------------------------------------------
     # helpers
-    #--------
+    #---------------------------------------------------------------
 
 
     def check_input_shape(self, input_, exp_shapes):
@@ -956,9 +964,9 @@ class ComputeBehavior:
         return [cum_sum / cum_count, (cum_sum, cum_count)]       
     
     
-    #---------------------------------------
+    #---------------------------------------------------------------
     # (1) get decisions: current or previous
-    #---------------------------------------
+    #---------------------------------------------------------------
     
     
     def current_decisions(self, decisions=None):
@@ -994,9 +1002,9 @@ class ComputeBehavior:
         return decisions * weights
 
         
-    #----------------------------------------------------
+    #---------------------------------------------------------------
     # (3) calculate coordinates: actual or counterfactual
-    #----------------------------------------------------
+    #---------------------------------------------------------------
 
 
     def actual_coords(self, decisions=None):
@@ -1014,9 +1022,9 @@ class ComputeBehavior:
         return (self.cumulative_sum(decisions) - (2*decisions)).astype(float)
         
         
-    #---------------
+    #---------------------------------------------------------------
     # main functions
-    #---------------
+    #---------------------------------------------------------------
     
     
     def simulate_consistent_decisions(self, decisions=None):
@@ -1126,9 +1134,9 @@ class ComputeBehavior:
             return [np.nan, np.nan, np.nan, np.nan]
         
         
-    #--------------
+    #---------------------------------------------------------------
     # run functions
-    #--------------
+    #---------------------------------------------------------------
     
     
     def run(self):

@@ -2,23 +2,24 @@ import pandas as pd
 from pathlib import Path 
 import openpyxl
 
-pkg_dir      = str(Path(__file__).parent.absolute())
-example_log  = str(Path(f'{pkg_dir}/../data/example_log/snt_18001.log'))
+pkg_dir = str(Path(__file__).parent.absolute())
+example_log_file = str(Path(f'{pkg_dir}/../data/example_files/snt_18001.log'))
+example_org_file = str(Path(f'{pkg_dir}/../data/example_files/snt_18001.xlsx'))
+example_beh_file = str(Path(f'{pkg_dir}/../data/example_files/snt_18001_behavior.xlsx'))
 
 # decision info:
 try: 
 
     # standard details file
-    task_file = str(Path(f'{pkg_dir}/../data/snt_details.xlsx'))
-    task = pd.read_excel(task_file)
+    task = pd.read_excel(str(Path(f'{pkg_dir}/../data/snt_details.xlsx')))
     task.sort_values(by='slide_num', inplace=True)
     decision_trials = task[task['trial_type'] == 'Decision']
-    convert_dict = {'decision_num': int,
-                    'scene_num': int,
-                    'char_role_num': int,
-                    'char_decision_num': int,
-                    'cogent_onset': float}
-    decision_trials = decision_trials.astype(convert_dict)
+    dtype_dict = {'decision_num': int,
+                  'scene_num': int,
+                  'char_role_num': int,
+                  'char_decision_num': int,
+                  'cogent_onset': float}
+    decision_trials = decision_trials.astype(dtype_dict) # ensure correct dtypes
     decision_trials.reset_index(inplace=True, drop=True)
 
     # validated decisions, w/ alphabetically sorted options - for parsing online data w/ randomized options
