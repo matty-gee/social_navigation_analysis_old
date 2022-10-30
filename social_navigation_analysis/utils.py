@@ -1,7 +1,7 @@
 import numpy as np
 import sklearn as sk
 from sklearn import metrics
-import itertools
+import itertools, functools
 import pandas as pd
 import re
 
