@@ -4,15 +4,18 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 import scipy as sp 
-import sklearn as sk
 import pycircstat
-from shapely import geometry
 from PIL import Image
 from sklearn.feature_extraction import image
 from sklearn.cluster import spectral_clustering
-import copy
-import json
+import numpy.lib.recfunctions as rfn
+from scipy.spatial import ConvexHull, Delaunay, procrustes
+from shapely.geometry import Polygon, MultiPoint, mapping
+import alphashape
+import copy, json
 from datetime import date
+from functools import wraps, lru_cache
+from numpy import asarray, linalg
 
 # my own modules
 import info 
@@ -24,7 +27,7 @@ pkg_dir = str(Path(__file__).parent.absolute())
 # parse snt logs, txts & csvs
 #------------------------------------------------------------------------------------------
 
-
+# - txt
 def format_txt_as_csv(txt_file, out_dir):
 
     ''' for converting the VTech txt files into csv files that CsvParser will recognize'''
@@ -33,22 +36,22 @@ def format_txt_as_csv(txt_file, out_dir):
         data = json.load(f)
         exp_data = data['metadata']['social_task_data']
 
-    posttask_df = pd.DataFrame()
-    posttask_df.loc[0, 'prolific_id'] = [exp_data['prolific_pid']]
+    task_df = pd.DataFrame()
+    task_df.loc[0, 'prolific_id'] = [exp_data['prolific_pid']]
     date = txt_file.split('/')[-1].split('.')[2].split('T')[0]
-    date = date[0:4] + '-' + date[4:6] + '-' + date[6:]
-    posttask_df.loc[0, 'date'] = date
+    date = date[0:4] + '/' + date[4:6] + '/' + date[6:]
+    task_df.loc[0, 'date'] = date
 
     #-----------------
     # task info
     #-----------------
 
-    posttask_df.loc[0, 'task_ver'] = exp_data['version']
+    task_df.loc[0, 'task_ver'] = exp_data['version']
 
     # button presses
     bps = exp_data['narrative_resps'].split(',')
     bps = [utils.remove_nonnumeric(b) for b in bps]
-    posttask_df['snt_choices'] = str([f'{i+1}:{b}' for i, b in enumerate(bps)])
+    task_df['snt_choices'] = str([f'{i+1}:{b}' for i, b in enumerate(bps)])
 
     # options
     for i, o in enumerate(exp_data['narrative_opts_order'].split('],[')):
@@ -58,8 +61,8 @@ def format_txt_as_csv(txt_file, out_dir):
         if i == 0: opts = f'"{i+1};{opt1};{opt2}"'
         else:      opts = f'{opts},"{i+1};{opt1};{opt2}"'
         
-    posttask_df.loc[0, 'snt_opts_order'] = opts
-    posttask_df.loc[0, 'snt_rts'] = exp_data['narrative_rts']
+    task_df.loc[0, 'snt_opts_order'] = opts
+    task_df.loc[0, 'snt_rts'] = exp_data['narrative_rts']
 
     #-----------------
     #  characters
@@ -71,8 +74,8 @@ def format_txt_as_csv(txt_file, out_dir):
         order = {'Chris':'first','Maya':'second','Kayce':'assistant','Newcomb':'powerful','Hayworth':'boss','Anthony':'neutral'}   
 
     for name, role in order.items(): 
-        posttask_df.loc[0, f'character_info.{role}.name'] = name
-        posttask_df.loc[0, f'character_info.{role}.img']  = exp_data['character_imgs'][name]
+        task_df.loc[0, f'character_info.{role}.name'] = name
+        task_df.loc[0, f'character_info.{role}.img']  = exp_data['character_imgs'][name]
 
     #-----------------
     # memory
@@ -152,15 +155,18 @@ def format_txt_as_csv(txt_file, out_dir):
         iq_resps.append(resps[t])
     iq_df = pd.DataFrame(np.array(iq_resps).reshape(1,-1), columns=iq_colnames)
 
-
     #-----------------
     # combine 
     #-----------------
 
-    posttask_df = pd.concat([posttask_df, memory_df, dots_df, judgment_df, emotion_df, iq_df], axis=1)
-    posttask_df.to_csv(f"{out_dir}/SNT_{exp_data['prolific_pid']}.csv", index=False)
+    out_fname = f"{out_dir}/SNT_{exp_data['prolific_pid']}.csv"
+    csv_df = pd.concat([task_df, memory_df, dots_df, judgment_df, emotion_df, iq_df], axis=1)
+    csv_df['end_questions'] = exp_data['end_questions']
+    csv_df.to_csv(out_fname, index=False)
+    
+    return out_fname
 
-
+# - logs
 def parse_log(file_path, experimenter, output_timing=True, out_dir=None): 
     '''
         Parse social navigation cogent logs & generate excel sheets
@@ -197,7 +203,7 @@ def parse_log(file_path, experimenter, output_timing=True, out_dir=None):
 
     # load in data
     file_path = Path(file_path)
-    sub_id = re.split('_|\.', file_path.name)[1] # expects a file w/ snt_subid
+    sub_id    = re.split('_|\.', file_path.name)[1] # expects a file w/ snt_subid
 
     # key presses differed across iterations of the task: 
     # - these versions had a fixed choice order across subjects
@@ -273,7 +279,9 @@ def parse_log(file_path, experimenter, output_timing=True, out_dir=None):
         choice_data.loc[t, ['decision_num','onset','button_press','decision','affil','power','reaction_time']] = [t+1, slide_onset, bp, dec] + dim_decs + [rt/1000]
 
     choice_data = merge_choice_data(choice_data)
-    choice_data.to_excel(Path(f'{xlsx_dir}/SNT_{sub_id}.xlsx'), index=False)
+    out_fname   = str(Path(f'{xlsx_dir}/SNT_{sub_id}.xlsx'))
+    choice_data.to_excel(out_fname, index=False)
+    return out_fname
 
     # TODO: add rt to this...
     if output_timing:
@@ -320,29 +328,7 @@ def parse_log(file_path, experimenter, output_timing=True, out_dir=None):
         timing_df.to_excel(Path(f'{timing_dir}/SNT_{sub_id}_timing.xlsx'), index=False)
 
 
-def merge_choice_data(choice_data, decision_cols=None):
-    if decision_cols is None:
-        decision_cols = ['dimension','scene_num','char_role_num','char_decision_num']
-    if 'decision_num' not in decision_cols:
-        decision_cols = ['decision_num'] + decision_cols
-    choice_data = info.decision_trials[decision_cols].merge(choice_data, on='decision_num')
-    convert_dict = {'decision_num': int,
-                    'dimension': str,
-                    'scene_num': int,
-                    'char_role_num': int,
-                    'char_decision_num': int,
-                    'button_press': int,
-                    'decision': int,
-                    'affil': int,
-                    'power': int,
-                    'reaction_time': float}
-    if 'onset' in choice_data.columns:
-        convert_dict['onset'] = float
-
-    choice_data = choice_data.astype(convert_dict)
-    return choice_data
-
-
+# - csvs
 class ParseCsv:
     
     def __init__(self, csv_path, snt_version='standard', verbose=0):
@@ -434,31 +420,52 @@ class ParseCsv:
    
     def run(self):
 
-        if 'snt_choices' not in self.data.columns:    
-            print(f'Subject ({self.sub_id}) does not have a "snt_choice" column. Exiting without parsing.')
-            return 
-        else: 
-            self.task_functions = {'snt': self.process_snt,
-                                  'characters': self.process_characters,
-                                  'memory': self.process_memory,
-                                  'dots': self.process_dots, 
-                                  'forced_choice': self.process_forced_choice,
-                                  'ratings': self.process_ratings}     
+        self.task_functions = {'snt': self.process_snt,
+                                'characters': self.process_characters,
+                                'memory': self.process_memory,
+                                'dots': self.process_dots, 
+                                'forced_choice': self.process_forced_choice,
+                                'ratings': self.process_ratings,
+                                'schema': self.process_schema_judgments,
+                                'trust': self.process_trust_game,
+                                'iq': self.process_iq,
+                                'realworld': self.process_realworld,
+                                'questions': self.process_questions, 
+                                'free_response': self.process_free_response}     
 
-            self.task_functions['snt']()
-            post_snt = []
-            for task in ['characters', 'memory', 'dots', 'ratings', 'forced_choice']:
-                out = self.task_functions[task]()
-                if isinstance(out, pd.DataFrame):
-                    post_snt.append(out)
-            self.post = pd.concat(post_snt, axis=1)
-            self.post.index = [self.sub_id]
-            return [self.snt, self.post]
+        self.task_functions['snt']()
+
+        post_snt = []
+        for task in ['characters', 'memory', 'dots', 'ratings', 
+                    'forced_choice', 'schema', 'trust', 'iq', 
+                    'realworld', 'questions', 'free_response']:
+            out = self.task_functions[task]()
+            if isinstance(out, pd.DataFrame):
+                post_snt.append(out)
+
+        self.post = pd.concat(post_snt, axis=1)
+        self.post.index = [self.sub_id]
+
+        # get the date somehow: 
+        if 'date' in self.data.columns:
+            date = self.data.date.values[0]
+        else:
+            date = self.csv.split('/')[-1].split('_')[3].replace('-','/')
+        self.post.insert(0, 'date', date)
+
+        # experiment info (esp. for multi-day schema)
+        if 'experiment' in self.data.columns:
+            self.post.insert(1, 'experiment', self.data.experiment.values[0])
+        
+        # self.post.insert(1, 'task_ver', self.data.task_ver)
+
+        return [self.snt, self.post]
     
     def process_snt(self):
 
         if 'snt_choices' not in self.data.columns:
-            print(f'{self.sub_id} does not have a "snt_choice" column')
+            if self.verbose: print(f'{self.sub_id} does not have a "snt_choice" column')
+            self.snt = None
             return
         else:
             
@@ -671,12 +678,189 @@ class ParseCsv:
                 
             return self.forced_choice
 
-    # process iq
-    # process misc qs
+    def process_schema_judgments(self):
+        if not utils.substring_in_strings('schema', self.data.columns):
+            if self.verbose: print('There are no schema columns in the csv')
+            return 
+        else:
+            self.schema = self.data[[c for c in self.data.columns if ('schema' in c) & ('resp' in c)]]
+            self.schema.columns = [f"{('_').join(c.split('_')[4:6])}" for c in self.schema.columns]
+            self.schema.index = [self.sub_id]
+            return self.schema
 
+    def process_trust_game(self):
 
-def parse_csv(file_path, snt_version='standard', out_dir=None):
+        if not utils.substring_in_strings('trust', self.data.columns):
+            if self.verbose: print('There are no trust game columns in the csv')
+            return 
+        else:
+            try: 
+                pre_ratings = self.data[[c for c in self.data.columns if ('snt_trust_ratings_pre' in c) & ('resp' in c)]]
+                pre_ratings.columns = [f"{c.split('_')[4]}_trust_pre" for c in pre_ratings.columns]
+
+                post_ratings = self.data[[c for c in self.data.columns if ('snt_trust_ratings_post' in c) & ('resp' in c)]]
+                post_ratings.columns = [f"{c.split('_')[4]}_trust_post" for c in post_ratings.columns]
+
+                choices, cols = [], []
+                other, first, comp = 1, 1, 1
+                trust_partner = self.data['trust_partner'].values[0]
+                for round in range(1,9): 
+                    for trial in range(1,10):
+                        trial   = f'trust_game_round0{round}_trial0{trial}'
+                        
+                        partner = self.data[f'{trial}_partner'].values[0]
+                        resp    = self.data[f'{trial}_choice'].values[0]
+                        rt      = self.data[f'{trial}_rt'].values[0]
+                        choices.append(resp)
+                        
+                        if partner.lower()==trust_partner.lower():
+                            cols.append(f'trust_round0{round}_other0{other}')
+                            other = other + 1
+                        elif 'computer' in partner:
+                            cols.append(f'trust_round0{round}_computer0{comp}')
+                            comp = comp + 1
+                        else:
+                            cols.append(f'trust_round0{round}_first0{first}')
+                            first = first + 1
+
+                trust_game = pd.DataFrame(np.array(choices)[np.newaxis], columns=cols)
+                self.trust = pd.concat([pre_ratings, trust_game, post_ratings], axis=1)
+                self.trust.index = [self.sub_id]
+                return self.trust
+            except:
+                return 
     
+    def process_realworld(self):
+
+        if not utils.substring_in_strings('realworld_relationships', self.data.columns):
+            if self.verbose: print('There are no realworldrelationships columns in the csv')   
+            return 
+        else:
+            network_div, network_num, relationships, people = [], [], [], []
+
+            categories = ['marriage', 'dating', 'children', 'parents', 'inlaws', 'relatives', 'friends', 'religion', 'school',
+                          'work', 'work_supervision', 'work_nonsupervision', 'neighbors', 'volunteer',
+                          'extra_group1', 'extra_group2', 'extra_group3', 'extra_group4', 'extra_group5'] 
+            rating_cols = ['time_known', 'frequency', 'similarity', 'likability', 'impact',  # this may vary across colletions...?
+                           'popularity', 'competence', 'friendliness', 'dominance', 
+                           'dots_affil', 'dots_power']
+                    
+            for cat in categories:
+
+                try:
+                   
+                    num_ppl_ = int(self.data[f'realworld_relationships_{cat}_number_of_people_value'].values[0])
+                    if num_ppl_ == 0:
+                        network_div.append(0)
+                        network_num.append(0)                       
+                    elif cat == 'dating':
+                        if (num_ppl_ == 1):
+                            network_div.append(1)
+                            network_num.append(1)
+                        elif (num_ppl_ == 3): 
+                            network_div.append(1)
+                            network_num.append(2)
+                        elif (num_ppl_ == 2) or (num_ppl_ == 4): 
+                            network_div.append(0)
+                            network_num.append(0) 
+                    else: # not dating
+                        if math.isnan(num_ppl_):
+                            network_num.append(0)
+                            network_div.append(0)
+                        else:
+                            network_num.append(num_ppl_)
+                            if (num_ppl_ != 0): network_div.append(1)
+                            else:               network_div.append(0)
+
+                    if num_ppl_ > 0:
+                        for n in range(num_ppl_):
+                            
+                            person = f'realworld_relationships_{cat}_people_{n}'
+                            ratings = self.data[[f'{person}_{col}' for col in rating_cols]].values[0].astype(int)
+                            relationships.extend(list(ratings))     
+                            people.append(f'{cat}_{n+1:02d}')     
+                            
+
+                except: 
+                    network_num.append(0)
+                    network_div.append(0)
+
+            sni_df = pd.DataFrame(np.array([np.sum(network_num), np.sum(network_div)])[np.newaxis], 
+                                  columns=['sni_number_ppl', 'sni_network_diversity'])
+            realworld_df = pd.DataFrame(np.array(relationships)[np.newaxis],
+                                        columns=np.array([[f'{p}_{col}' for col in rating_cols] for p in people]).flatten())
+            realworld_df[[c for c in realworld_df if 'affil' in c]] = (realworld_df[[c for c in realworld_df if 'affil' in c]] - 500) / 500
+            realworld_df[[c for c in realworld_df if 'power' in c]] = (500 - realworld_df[[c for c in realworld_df if 'power' in c]]) / 500
+
+            # put together
+            self.relationships = pd.concat([sni_df, realworld_df], axis=1)
+            self.relationships.index = [self.sub_id]
+            return self.relationships
+
+    def process_iq(self):
+        
+        if not utils.substring_in_strings('iq_MX47', self.data.columns):
+            if self.verbose: print('There are no iq columns in the csv')   
+            return 
+        else:
+            iq_ques = [q.split('.')[1] for q in [c for c in self.data.columns if ('iq' in c) & ('resp' in c)]]
+            iq_resp = data[[c for c in self.data.columns if ('iq' in c) & ('resp' in c)]].values[0]
+            answers =  [["VR4",5],["VR16","Its"],["VR17",47],["VR19","Sunday"],
+                        ["LN7","X"],["LN33","G"],["LN34","X"],["LN58","N"],
+                        ["MX45","E"],["MX46","B"],["MX47","B"],["MX55","D"],
+                        ["R3D3","C"],["R3D4","B"],["R3D6","F"],["R3D8","G"]]
+            iq_correct = np.zeros(len(answers))
+            for answer in answers: 
+                for (q,ques), resp in zip(enumerate(iq_ques), iq_resp):
+                    if (ques == answer[0]) & (resp == answer[1]):
+                        iq_correct[q] = 1
+            self.iq = pd.DataFrame(np.mean(iq_correct)[np.newaxis], columns=['iq_score'])
+            self.iq.index = [self.sub_id]
+            return self.iq
+        
+    def process_free_response(self):
+
+        if not utils.substring_in_strings('free_response', self.data.columns):
+            if self.verbose: print('There are no free responses in the csv')   
+            return 
+        else:
+            self.free_response = self.data[[c for c in self.data.columns if 'free_response' in c]]
+            if len(self.free_response.columns) > 1: # multiple characters - diff format
+                self.free_response.columns = [f"free_response_{c.split('_')[3]}" for c in self.free_response.columns] 
+            self.free_response.index = [self.sub_id]
+            return self.free_response           
+
+    def process_questions(self):
+
+        if not utils.substring_in_strings('questions', self.data.columns):
+            if self.verbose: print('There are no storyline/behavioral questions in the csv')   
+            return 
+        else:
+            ques_cols = [c for c in self.data.columns if 'questions' in c]
+            
+            if len(ques_cols) == 1: # older version
+                
+                end_questions = self.data['end_questions'].values[0].split(';')
+                qs, ans = [], []
+                for ques in end_questions:
+                    qs.append(utils.remove_nontext(ques.split(':')[0]))
+                    ans.append(re.sub('[\[\]"]', '', ques.split(':')[1]))
+                self.questions = pd.DataFrame(np.array(ans)[np.newaxis], columns=[f'storyline_{q}' for q in qs])  
+                self.questions['storyline_engagement'] = self.questions['storyline_engagement'].astype(int)
+                self.questions['storyline_difficulty']  = self.questions['storyline_difficulty'].astype(int)
+                self.questions['storyline_relatability'] = self.questions['storyline_relatability'].astype(int)
+
+            else: # newer version
+                self.questions = self.data[ques_cols]
+                self.questions.columns = [c.replace('_questions', '') for c in self.questions.columns]
+                
+            self.questions.index = [self.sub_id]
+            return self.questions
+
+
+# - convenience function
+def parse_csv(file_path, snt_version='standard', verbose=0, out_dir=None):
+
     # out directories
     if out_dir is None: out_dir = Path(os.getcwd())
     if not os.path.exists(out_dir):
@@ -694,27 +878,56 @@ def parse_csv(file_path, snt_version='standard', out_dir=None):
         os.makedirs(post_dir)   
 
     # parse file
-    parser = ParseCsv(file_path, snt_version=snt_version, verbose=0)
-    try: 
-        snt, post = parser.run()
-        snt.to_excel(Path(f'{snt_dir}/SNT_{parser.sub_id}.xlsx'), index=False)
-        post.to_excel(Path(f'{post_dir}/SNT-posttask_{parser.sub_id}.xlsx'), index=True)
-        
-        return f'{snt_dir}/SNT_{parser.sub_id}.xlsx' # filename
-    except: 
+    parser = ParseCsv(file_path, snt_version=snt_version, verbose=verbose)
+    snt, post = parser.run()
+    post.to_excel(Path(f'{post_dir}/SNT-posttask_{parser.sub_id}.xlsx'), index=True)
+    try: # may not have snt data
+        out_snt_fname = str(Path(f'{snt_dir}/SNT_{parser.sub_id}.xlsx')) # main behavioral filename
+        snt.to_excel(out_snt_fname, index=False)
+        return out_snt_fname
+    except:
         return 
+    
+
+def merge_choice_data(choice_data, decision_cols=None):
+    if decision_cols is None:
+        decision_cols = ['dimension','scene_num','char_role_num','char_decision_num']
+    if 'decision_num' not in decision_cols:
+        decision_cols = ['decision_num'] + decision_cols
+    choice_data = info.decision_trials[decision_cols].merge(choice_data, on='decision_num')
+    convert_dict = {'decision_num': int,
+                    'dimension': str,
+                    'scene_num': int,
+                    'char_role_num': int,
+                    'char_decision_num': int,
+                    'button_press': int,
+                    'decision': int,
+                    'affil': int,
+                    'power': int,
+                    'reaction_time': float}
+    if 'onset' in choice_data.columns:
+        convert_dict['onset'] = float
+
+    choice_data = choice_data.astype(convert_dict)
+    return choice_data
+
+
+
+    # process misc qs
 
 
 #------------------------------------------------------------------------------------------
 # parse snt dots jpgs
 #------------------------------------------------------------------------------------------
-#---------------------------------------------------------------
+
+
 # TODO maybe write this as a class too:
 # class ProcessDots:
 # def load_image(self):
 # def process_dots(self):
 # def get_dot_coords(self):
 # def define_char_coords(self):
+
 
 def load_image(img):
     return Image.open(img)
@@ -1250,7 +1463,528 @@ class ComputeBehavior:
             self.behavior.loc[t_num-1, f'Q4_overlap{suffix}'] = overlap[3]
 
 
-def compute_behavior(file_path, weight_types=False, decision_types=False, coord_types=False, out_dir=None):
+# TODO: create a key for the different variables
+class ComputeBehavior2:
+
+    __slots__ = ["file_path", "sub_id", "data",
+                 "decision_types", "weight_types", "coord_types",  
+                 "demean_coords", "out"] # assign to optimize memory
+
+    def __init__(self, file, decision_types=False, weight_types=False, coord_types=False, demean_coords=False):
+        '''
+            Class to compute behavioral geometry
+
+            Arguments
+            ---------
+            file : str, dataframe or None
+                
+            decision_types : bool (optional, default=False)
+                'current'
+                'previous' 
+            weight_types : bool (optional, default=False)
+                'constant'
+                'linear_decay'
+                'exponential_decay'
+            coord_types : bool (optional, default=False)
+                'actual'
+                'counterfactual' 
+            demean_coords : bool (optional, default=False)
+                Whether to mean center the coordinates  
+
+            Raises
+            ------
+            Exception : 
+                _description_
+
+        '''
+    
+        warnings.simplefilter(action="ignore", category=pd.errors.PerformanceWarning) # fragmented df...TODO maybe fix??
+        np.seterr(divide='ignore', invalid='ignore') # division by 0 in some of our operations
+            
+        #---------------------------------------------------------------
+        # load in data
+        #---------------------------------------------------------------
+        
+        if file is None:
+
+            self.file_path = None
+            self.sub_id    = None   
+
+        else:
+
+            if type(file) is not str: # eg for easy unittesting
+                
+                self.file_path = None
+                self.sub_id    = None
+                self.data      = copy.deepcopy(file)
+            
+            else: 
+                
+                self.file_path = Path(file)
+                self.sub_id    = self.file_path.stem.split('_')[1] # expects a filename like 'snt_subid_*'
+                if self.file_path.suffix == '.xlsx':  self.data = copy.deepcopy(pd.read_excel(self.file_path, engine='openpyxl'))
+                elif self.file_path.suffix == '.xls': self.data = copy.deepcopy(pd.read_excel(self.file_path))
+                elif self.file_path.suffix == '.csv': self.data = copy.deepcopy(pd.read_csv(self.file_path))
+                else: raise Exception(f'File type {self.file_path.suffix} not recognized')
+    
+                self.check_input(self.data, (63, self.data.shape[1])) # should have 63 trials
+ 
+            #---------------------------------------------------------------
+            # clean up input
+            #---------------------------------------------------------------
+            
+            # get decisions in 2d
+            if 'affil' not in self.data.columns: # for backward compatability
+                self.data['decision'] = self.data['decision'].astype(int)
+                dim_mask  = np.vstack([(self.data['dimension'] == 'affil').values, 
+                                       (self.data['dimension'] == 'power').values]).T
+                self.data[['affil', 'power']] = self.data['decision'].values[:, np.newaxis] * (dim_mask * 1)
+                            
+            # TODO: maybe should already convert into a numpy structured array?
+            # ensure correct data types
+            type_dict = {'decision_num': int, 'scene_num': int, 'dimension': object,
+                         'char_role_num': int, 'char_decision_num': int,
+                         'button_press': int, 'decision': int, 'affil': int, 'power': int,
+                         'reaction_time': float, 'onset': float}
+            for col in self.data: 
+                if self.data[col].dtype != type_dict[col]:
+                    self.data[col] = self.data[col].astype(type_dict[col])
+
+        #---------------------------------------------------------------
+        # what to compute
+        #---------------------------------------------------------------
+
+        # types of decisions, weighting, coordinates
+        if decision_types is True:    self.decision_types = ['current', 'previous']
+        elif decision_types is False: self.decision_types = ['current']
+        else:                         self.decision_types = decision_types
+        
+        if weight_types is True:      self.weight_types = ['constant', 'linear_decay', 'exponential_decay']
+        elif weight_types is False:   self.weight_types = ['constant']
+        else:                         self.weight_types = weight_types
+        
+        if coord_types is True:       self.coord_types = ['actual', 'counterfactual']
+        elif coord_types is False:    self.coord_types = ['actual']
+        else:                         self.coord_types = coord_types
+
+        self.demean_coords = demean_coords
+
+    @staticmethod
+    def check_input(input, exp_shapes):
+        ''' check the shape of input arrays'''
+        if type(exp_shapes) != list: exp_shapes = [exp_shapes]
+        matches = np.sum([input.shape == e for e in exp_shapes])
+        if matches == 0:
+            str_ = (' ').join([f'({e[0]},{e[1]})' for e in exp_shapes])
+            raise Exception(f'Shape mismatch: {input.shape}!= any of expected shapes: {str_}')
+        else:
+            return True
+
+    #---------------------------------------------------------------------------------------
+    # defining the trajectories in cartesian and polar coordinates
+    #---------------------------------------------------------------------------------------
+    
+    @staticmethod
+    def get_decisions(decisions_raw, which='current', shift_by=1, replace_with=0, float_dtype='float32'):
+        '''
+            Arguments
+            ---------
+            decisions_raw : _type_
+            which : str (optional, default='current')
+            shift_by : int (optional, default=1)
+            replace_with : int (optional, default=0)
+
+            Returns
+            -------
+            _type_ 
+                _description_
+
+        '''
+        if which == 'current':
+            return np.array(decisions_raw, dtype=float_dtype)
+        elif which == 'previous':
+            decisions_prev = np.ones_like(decisions_raw) * replace_with
+            decisions_prev[shift_by:] = np.array(decisions_raw)[0:-shift_by]
+            return np.array(decisions_prev, dtype=float_dtype)
+
+    @staticmethod
+    def weight_decisions(decisions, weights='constant', float_dtype='float32'):
+        '''
+            Arguments
+            ---------
+            decisions : _type_
+            weights : str (optional, default='constant')
+        '''
+        n_trials = len(decisions)
+        if weights == 'constant': 
+            decisions_weighted = decisions * np.ones(n_trials)[:,None]
+        elif weights == 'linear_decay': 
+            decisions_weighted = decisions * utils.linear_decay(1, 1/n_trials, n_trials)[:,None]
+        elif weights == 'exponential_decay': 
+            decisions_weighted = decisions * utils.exponential_decay(1, 1/n_trials, n_trials)[:,None]
+        return np.array(decisions_weighted, dtype=float_dtype)
+
+    @staticmethod
+    def get_coords(decisions, which='actual', demean=False, float_dtype='float32'):
+        '''
+            Arguments
+            ---------
+            decisions : array of shape (n_trials, 2)
+            which : str (optional, default='actual')
+                'actual' or 'counterfactual' 
+            demean : bool (optional, default=False)
+                whether to demean coordinates or not 
+
+            Returns
+            -------
+        '''
+        if which == 'actual':
+            coords = np.nancumsum(decisions, axis=0)
+        elif which == 'counterfactual':
+            coords = (np.nancumsum(decisions, axis=0) - (2 * decisions))
+        if demean: coords = coords - np.mean(coords, axis=0)
+        return np.array(coords, dtype=float_dtype)
+
+    @staticmethod
+    def make_3d(U, V, ori):
+        ''' 
+            add 3rd dimension to vector arrays U & V & origin coordinates
+            - U are vectors of interest, z-axis will vary w/ number of interactions
+            - ori will be subtracted from U, z-axis will vary w/ number of interactions
+            - V are reference vectors, z-axis is constant
+        '''
+
+        if V.ndim == 2:   V = V[0]
+        if ori.ndim == 1: ori = ori[np.newaxis]
+
+        num = np.arange(1, len(U) + 1)[:,np.newaxis]
+        U   = np.concatenate([U, num], axis=1) # changes w/ num of interactions
+        V   = np.repeat(np.hstack([V, len(U)])[np.newaxis], len(U), axis=0) # fixed
+        ori = np.concatenate([np.repeat(ori, len(U), axis=0), num], axis=1) # changes w/ num of interactions   
+
+        return U, V, ori                           
+ 
+        ''' 
+
+        '''
+          
+    @staticmethod
+    def calc_angle(coords, ref_frame=None, n_dim=2, float_dtype='float32'):
+        '''
+            Arguments
+            ---------
+            coords : _type_
+                _description_
+            ref_frame : _type_
+                _description_
+            n_dim : int (optional, default=2)
+                _description_ 
+
+            Returns
+            -------
+            angles array  
+            
+            - origin
+            --- neu: (0, 0, [interaction # (1:12)]) - note that 'origin' moves w/ interactions if in 3d
+            --- pov: (6, 0, [interaction # (1:12)])
+            - reference vector (ref_vec)
+            --- neu: (6, 0, [max interaction (12)])
+            --- pov: (6, 6, [max interaction (12)])
+            - point of interaction vector (poi): (curr. affil coord, power coord, [interaction # (1:12)])
+            to get directional vetctors (poi-ori), (ref-ori)
+            - angle direction 
+        '''
+
+        # default: counterclockwise angle of vector from the origin against the positive x-axis
+        if ref_frame is None: 
+            ref = np.array([6,0])
+            ori = np.array([0,0])
+            drn = False
+        else: 
+            ref, ori, drn = ref_frame['ref_vec'], ref_frame['origin'], ref_frame['angle_drn']
+       
+        # add a third dimension if needed
+        if n_dim == 3: 
+            coords, ref, ori = ComputeBehavior2.make_3d(coords, ref[0], ori)
+            drn = None # may not be correct for neutral origin... not sure yet
+
+        return np.array(utils.calculate_angle(coords-ori, ref-ori, force_pairwise=False, direction=drn), dtype=float_dtype)[:, np.newaxis] # maybe add this into this class?
+
+    @staticmethod
+    def calc_distance(coords, origin, float_dtype='float32'):
+        return np.array([linalg.norm(v) for v in coords-origin], dtype=float_dtype)[:, np.newaxis]
+
+    #---------------------------------------------------------------------------------------
+    # other geometry
+    #---------------------------------------------------------------------------------------
+
+    # TODO: figure out to use decorator w/ generator expression instread of list comprehension
+    @staticmethod
+    def cumulative(func):
+        ''' decorator to compute measures cumulatively '''
+        @wraps(func)
+        def wrapper(values):
+            return np.vstack([func(values[:v, :]) for v in range(len(values))])
+        return wrapper
+
+    @staticmethod
+    def calc_cumulative_mean(values, resp_mask=None, which='linear', float_dtype='float32'):  
+
+        if resp_mask is None: resp_mask = np.ones(values.shape, dtype=bool) # idk?
+        # resp_mask = np.isfinite(values)
+        if resp_mask.ndim == 1: resp_mask = resp_mask[:, np.newaxis]
+        if values.ndim == 1: values = values[:,np.newaxis] # or broadcast?
+        
+        if which == 'linear':
+            return np.array(np.nancumsum(values, axis=0) / 
+                            np.nancumsum(resp_mask, axis=0), dtype=float_dtype)
+
+        elif which == 'circular':
+            means = np.zeros_like(values, dtype=float_dtype)
+            for c in range(len(values)):
+                if resp_mask[c]: means[c] = pycircstat.mean(values[:c])
+                else:            means[c] = means[c-1] # replace w/ previous (or nan?)
+            return np.array(means, dtype=float_dtype)
+
+    @staticmethod
+    def simulate_consistent_decisions(decisions, float_dtype='float32'):
+        ''' 
+            generate perfectly consistent and perfectly inconsistent decisions given a decision pattern
+        '''
+        resp_mask  = np.abs(decisions) 
+        con_decs   = resp_mask * 1
+        incon_decs = np.zeros_like(resp_mask)
+        for n_dim in range(2): 
+            dim_mask = resp_mask[:, n_dim] != 0 
+            incon_decs[dim_mask, n_dim] = [n if not i % 2 else -n for i, n in enumerate(con_decs[dim_mask, n_dim])] # flip every other sign
+        return [np.array(incon_decs, dtype=float_dtype), np.array(con_decs, dtype=float_dtype)]
+
+    @staticmethod
+    def calc_cumulative_consistency(decisions, float_dtype='float32'):
+        '''
+            Arguments
+            ---------
+            decisions : _type_
+                _description_
+            float_dtype : str (optional, default='float32')
+                _description_ 
+
+            Returns
+            -------
+            _type_ 
+                _description_
+
+        '''
+        # aliases
+        cum_mean = ComputeBehavior2.calc_cumulative_mean
+
+        # simulate range of possible behavior: minimum and maximum consistency, given charactr pattern & response pattern
+        resp_mask  = np.abs(decisions)
+        incon_decs, con_decs = ComputeBehavior2.simulate_consistent_decisions(decisions)  
+        min_coords = np.nancumsum(incon_decs, axis=0) / np.nancumsum(resp_mask, axis=0) # adjust for response counts at each time point
+        max_coords = np.nancumsum(con_decs, axis=0) / np.nancumsum(resp_mask, axis=0)
+
+        # 1d consistency = abs value coordinate, scaled by min and max possible coordinate  
+        cum_mean         = cum_mean(decisions, resp_mask, 'linear')
+        consistency_cart = (np.abs(cum_mean) - min_coords) / (max_coords - min_coords) # min max scaled
+
+        # 2d consistency = decision vector length, scaled by min and max possible vector lengths
+        min_r, max_r  = (np.array([linalg.norm(v) for v in min_coords]), np.array([linalg.norm(v) for v in max_coords]))
+        cum_mean_r    = np.array([linalg.norm(v) for v in cum_mean])
+        consistency_r = ((cum_mean_r - min_r) / (max_r - min_r))[:, np.newaxis]
+        
+        # return both dimensions separately & 2d
+        consistency = np.hstack([consistency_cart, consistency_r])
+        consistency = rfn.unstructured_to_structured(consistency, np.dtype([('affil_consistency', float_dtype),
+                                                                            ('power_consistency', float_dtype),
+                                                                            ('consistency', float_dtype)]))
+        return consistency                                                
+
+    @staticmethod
+    def calc_polygon(coords, alpha=0):
+        ''' returns vertices & polygon from a set of 2D coordinates
+            can be convex or concave, controlled by alpha parameter
+        '''
+        hull   = alphashape.alphashape(np.array(coords), alpha) 
+        hull_vertices = np.array(mapping(hull)['coordinates'][0])
+        return [geometry.Polygon(hull_vertices), hull_vertices]
+
+    @staticmethod
+    def calc_shape_size(coords, float_dtype="float32"):
+        ''' just for convex hull 
+            uses scipy: in 2D, area & volume mean perimeter & area, respectively
+        '''
+        try: 
+            convexhull = ConvexHull(coords) 
+            return np.array([convexhull.area , convexhull.volume], dtype=float_dtype)
+        except:
+            return np.array([np.nan,np.nan], dtype=float_dtype)
+
+    @staticmethod
+    def calc_quadrant_overlap(coords, float_dtype="float32"):
+        quad_vertices = np.array([[[0,0], [6,0], [6,6],  [0,6]],
+                                  [[-6,0],[0,0], [0,6],  [-6,6]],
+                                  [[0,0], [-6,0],[-6,-6],[0,-6]],
+                                  [[6,0], [0,0], [0,-6], [6,-6]]])
+        try: 
+            convexhull = ConvexHull(coords)
+            polygon    = Polygon(coords[convexhull.vertices])
+            return np.array([polygon.intersection(Polygon(v)).area / polygon.area for v in quad_vertices], dtype=float_dtype)
+        except:
+            return np.array([np.nan, np.nan, np.nan,np.nan])
+
+    @staticmethod
+    def calc_centroid(coords, float_dtype='float32'):
+        try: 
+            return asarray(Polygon(coords).convex_hull.centroid.coords, dtype=float_dtype)
+        except: 
+            return np.array([np.nan, np.nan], dtype=float_dtype)
+
+    #---------------------------------------------------------------------------------------
+    # main functions
+    #---------------------------------------------------------------------------------------
+
+    @staticmethod
+    def calc_coords(indices, data, decisions='current', weights='constant', coords='actual', demean_coords=False, float_dtype='float32'):
+
+        # aliases
+        cumulative  = ComputeBehavior2.cumulative
+        cum_mean    = ComputeBehavior2.calc_cumulative_mean
+        compute_it  = ComputeBehavior2
+
+        # weighted decisions & cartesian coordinates
+        decisions_raw = data[['affil', 'power']].values
+        resp_mask     = decisions_raw != 0
+
+        decisions_selected = compute_it.get_decisions(decisions_raw, which=decisions)
+        decisions_weighted = compute_it.weight_decisions(decisions_selected, weights=weights) 
+        coordinates        = compute_it.get_coords(decisions_weighted, which=coords, demean=demean_coords)
+
+        # summary variables
+        coords_mean        = cum_mean(decisions_weighted, resp_mask, which='linear') # mean of coords - MAYBE SHOULD BE DECISIONS INSTED?
+        coords_centroid    = cumulative(compute_it.calc_centroid)(coordinates) # center of coords
+
+        coords = np.hstack([indices[:,np.newaxis], np.sum(resp_mask, axis=1)[:,np.newaxis], decisions_weighted, coordinates, coords_mean, coords_centroid])
+        coords = rfn.unstructured_to_structured(coords, np.dtype([('trial_index', 'uint16'), ('responded', 'bool'), 
+                                                                  ('affil_decision', float_dtype), ('power_decision', float_dtype),
+                                                                  ('affil_coord', float_dtype), ('power_coord', float_dtype),
+                                                                  ('affil_mean', float_dtype), ('power_mean', float_dtype), 
+                                                                  ('affil_centroid', float_dtype), ('power_centroid', float_dtype)]))
+        return coords
+        
+    @staticmethod
+    def calc_polar(coords, resp_mask=None, origins=['neu', 'pov'], float_dtype='float32'):
+
+        # aliases
+        cum_mean   = ComputeBehavior2.calc_cumulative_mean
+        compute_it = ComputeBehavior2
+
+        ref_frames = {'neu': {'origin': np.array([[0,0]]), 'ref_vec': np.array([[6,0]]), 'angle_drn': False},
+                      'pov': {'origin': np.array([[6,0]]), 'ref_vec': np.array([[6,6]]), 'angle_drn': None}} 
+
+        out, colnames = [], [] # appending to lists in a loop is faster
+        for origin in origins:
+
+            distances  = compute_it.calc_distance(coords, ref_frames[origin]['origin'])
+            dist_mean  = cum_mean(distances, resp_mask, which='linear')
+
+            out.append([distances, dist_mean])
+            colnames.extend([f'{origin}_dist', f'{origin}_dist_mean'])
+
+            for n_dim in [2, 3]:
+
+                angles     = compute_it.calc_angle(coords, ref_frames[origin], n_dim=n_dim)    
+                angle_mean = cum_mean(angles, resp_mask, which='circular')
+
+                out.append([angles, angle_mean])
+                colnames.extend([f'{origin}_{n_dim}d_angle', f'{origin}_{n_dim}d_angle_mean'])
+
+        polar = rfn.unstructured_to_structured(np.concatenate(out, axis=0).squeeze().T, np.dtype([(col, float_dtype) for col in colnames]))
+        return polar
+
+    @staticmethod
+    def calc_shape(coords, float_dtype='float32'):
+        ''' probably better to compute over multiple character trials so can estimate a shape '''
+
+        # aliases
+        cumulative = ComputeBehavior2.cumulative     
+        compute_it = ComputeBehavior2
+
+        # 2d
+        size     = cumulative(compute_it.calc_shape_size)(coords)
+        size_pov = cumulative(compute_it.calc_shape_size)(np.vstack([np.array([6,0]), coords])) # include pov, then drop it to make length correct
+        overlap  = cumulative(compute_it.calc_quadrant_overlap)(coords)
+        shape_measures = rfn.unstructured_to_structured(np.hstack([size, size_pov[1:], overlap]), 
+                                                        np.dtype([(f'perimeter', float_dtype),     (f'area', float_dtype), 
+                                                                  (f'pov_perimeter', float_dtype), (f'pov_area', float_dtype), 
+                                                                  (f'Q1_overlap', float_dtype),    (f'Q2_overlap', float_dtype),
+                                                                  (f'Q3_overlap', float_dtype),    (f'Q4_overlap', float_dtype)]))
+        return shape_measures
+ 
+
+    def run(self, float_dtype='float32', labels='char_role_num'):
+        ''' labels controls how the trials are split up to calculate trajectories '''
+
+        # aliases
+        unstructure = rfn.structured_to_unstructured
+        compute_it = ComputeBehavior2
+ 
+        # get the labels
+        if labels is None:        labels = np.ones(len(self.data)) # 1 trajectory
+        elif type(labels) == str: labels = self.data[labels] 
+        else:                     
+            if len(labels) != self.data.shape[0]: 
+                raise Exception(f'The labels have a different length {len(labels)} than the data {self.data.shape[0]}')
+        label_list = np.unique(labels)
+
+        self.out = {}
+        types = [[dt, wt, ct] for dt in self.decision_types for wt in self.weight_types for ct in self.coord_types]
+        for dt, wt, ct in types:
+        
+            # compute trajecotry-specific coordinates
+            cart_coords, polar_coords, shape_metrics, consistency = [], [], [], []
+            for label in label_list:
+
+                ixs = np.where(labels == label)[0]
+                cart = compute_it.calc_coords(ixs, self.data.loc[ixs, ['dimension', 'button_press', 'affil', 'power']], 
+                                              decisions=dt, weights=wt, coords=ct, 
+                                              demean_coords=self.demean_coords, float_dtype=float_dtype)
+                cart_coords.append(cart)
+                polar_coords.append(compute_it.calc_polar(unstructure(cart[['affil_coord','power_coord']])))
+                
+                consistency.append(compute_it.calc_cumulative_consistency(unstructure(cart[['affil_decision','power_decision']]))) 
+
+            out_df = pd.concat([pd.DataFrame(np.hstack(cart_coords)), 
+                                pd.DataFrame(np.hstack(polar_coords)), 
+                                pd.DataFrame(np.hstack(consistency))], axis=1)
+            out_df.sort_values(by='trial_index', inplace=True) # IMPORTANT!
+            out_df.reset_index(drop=True, inplace=True) # IMPORTANT!
+            
+            # calculate shape of overall space
+            all_coords    = out_df[['affil_coord','power_coord']].values
+            shape_metrics = pd.DataFrame(compute_it.calc_shape(all_coords, float_dtype=float_dtype))
+
+            # calculate cumulative means across all trials
+            cum_mean = compute_it.calc_cumulative_mean
+            cols = out_df.columns
+            # resp_mask = out_df['responded'].values
+            for col in cols:
+                if (col not in ['trial_index', 'responded', 'affil_decision', 'power_decision']) & ('mean' not in col):
+                    if 'angle' in col:
+                        out_df[f'{col}_overallmean'] = cum_mean(out_df[col].values, which='circular') # no response mask: just compute over non-nans
+                    else:
+                        out_df[f'{col}_overallmean'] = cum_mean(out_df[col].values, which='linear')
+
+            # if more than one way to measure decisions, coordinates, then output a dictionary
+            task = self.data[['decision_num', 'dimension', 'scene_num', 'char_role_num', 'char_decision_num']]
+            df = pd.concat([task, out_df, shape_metrics], axis=1)
+            df.reset_index(drop=True, inplace=True)
+            del df['trial_index']
+            if len(types) > 1: self.out[f'{dt}_{wt}_{ct}'] = df
+            else:              self.out = df
+
+
+def compute_behavior(file_path, weight_types=False, decision_types=False, coord_types=False, demean_coords=False, out_dir=None, overwrite=False):
 
     # directories
     if out_dir is None: 
@@ -1258,18 +1992,21 @@ def compute_behavior(file_path, weight_types=False, decision_types=False, coord_
     else:
         if '/Behavior' not in out_dir: 
             out_dir = Path(f'{out_dir}/Behavior')
-    if out_dir is not False and not os.path.exists(out_dir):
+            
+    if not os.path.exists(out_dir):
         print('Creating subdirectory for behavior')
         os.makedirs(out_dir)
     
     # compute behavior & output
-    computer  = ComputeBehavior(file=file_path, weight_types=weight_types, decision_types=decision_types, coord_types=coord_types) # leave defaults for now:
-    computer.run()
     sub_id = Path(file_path).stem.split('_')[1]
-    computer.behavior.to_excel(Path(f'{out_dir}/SNT_{sub_id}_behavior.xlsx'), index=False)
+    out_fname = Path(f'{out_dir}/SNT_{sub_id}_behavior.xlsx')
+    if not os.path.exists(out_fname) or overwrite:
+        computer = ComputeBehavior2(file=file_path, weight_types=weight_types, decision_types=decision_types, 
+                                                    coord_types=coord_types, demean_coords=demean_coords) # leave defaults for now:
+        computer.run()
+        computer.out.to_excel(out_fname, index=False)
 
 
-# TODO: create a key for the different variables
 def summarize_behavior(file_paths, out_dir=None):
     
     # out directory
@@ -1278,40 +2015,52 @@ def summarize_behavior(file_paths, out_dir=None):
 
     with warnings.catch_warnings():
 
-        summaries = []
-
         file_paths = sorted((f for f in file_paths if (not f.startswith(".")) & ("~$" not in f)), key=str.lower) # ignore hidden files & sort alphabetically
+        sub_ids, sub_dfs = [], []
         for s, file_path in enumerate(file_paths):
             print(f'Summarizing {s+1} of {len(file_paths)}', end='\r')
 
             # load in
-            sub_id, behavior = load_data(file_path)
-            summary = pd.DataFrame()
-            summary.loc[0, ['sub_id', 'reaction_time_mean', 'reaction_time_std', 'missed_trials']] = [sub_id, np.mean(behavior['reaction_time']), np.std(behavior['reaction_time']), np.sum(behavior['button_press'] == 0)]
+            sub_id, behav = load_data(file_path)
+            sub_ids.append(sub_id)
+
+            values, cols = [], []
+
+            # the last value of column
+            last_value = ['perimeter', 'area', 'pov_perimeter', 'pov_area', 'Q1_overlap', 'Q2_overlap', 'Q3_overlap', 'Q4_overlap']
+            for col in last_value: 
+                values.append(behav[col].values[-1])
+                cols.append(col)
+
+            # the last values for each character and then their mean
+            character_roles = ['first', 'second', 'assistant', 'powerful', 'boss']
+            by_character = ['affil_mean', 'power_mean',
+                            'affil_centroid', 'power_centroid', 'neu_dist', 'neu_dist_mean',
+                            'neu_2d_angle', 'neu_2d_angle_mean', 'neu_3d_angle',
+                            'neu_3d_angle_mean', 'pov_dist', 'pov_dist_mean', 'pov_2d_angle',
+                            'pov_2d_angle_mean', 'pov_3d_angle', 'pov_3d_angle_mean']
+                        
+            for col in by_character:
+                char_vals = [behav[behav['char_role_num'] == char][col].values[-1] for char in range(1,6)]
+                if 'angle' in col: mean_val = pycircstat.mean(char_vals)
+                else:              mean_val = np.mean(char_vals)
+                values.extend(char_vals)
+                values.extend([mean_val])
+                cols.extend([f'{col}_{role}' for role in character_roles] + [f'{col}_mean'])
+
+            values.extend([behav[behav['char_role_num'] == char]['affil_coord'].values[-1] for char in range(1,6)])
+            cols.extend([f'affil_coord_{role}' for role in character_roles])
+            values.extend([behav[behav['char_role_num'] == char]['power_coord'].values[-1] for char in range(1,6)])
+            cols.extend([f'power_coord_{role}' for role in character_roles])
             
-            # summarize behavior
-            excl_cols = ['decision_num', 'dimension', 'scene_num', 'char_role_num', 
-                        'char_decision_num', 'onset', 'button_press', 'decision', 'reaction_time', 'affil',
-                        'power', 'affil_coord', 'power_coord', 'affil_prev', 'power_prev',
-                        'affil_coord_prev', 'power_coord_prev', 'affil_cf', 'power_cf', 'affil_coord_cf', 'power_coord_cf']
-            incl_cols = [c for c in behavior.columns if c not in excl_cols]
-            
-            # all trial mean: circular mean if a circular variable
-            for col in incl_cols:
-                if 'angle' not in col: summary.loc[0, col + '_mean'] = np.nanmean(behavior[col])
-                else:                  summary.loc[0, col + '_mean'] = pycircstat.mean(behavior[col]) # shouldnt be any nans?
+            sub_df = pd.DataFrame(np.array(values)[np.newaxis], columns=cols)
+            sub_df.loc[0, [f'decision_{d:02d}' for d in range(1,64)]] = np.sum(behav[['affil_decision', 'power_decision']], axis=1).values
 
-            # last trial's value only
-            end_df = pd.DataFrame(behavior.loc[62, incl_cols].values).T
-            end_df.columns = [c + '_end' for c in incl_cols]
-            summary = pd.concat([summary, end_df], axis=1)
+            sub_dfs.append(sub_df)
 
-            # add in all decisions
-            summary.loc[0, [f'decision_{d:02d}' for d in range(1,64)]] = behavior['decision'].values
-            summaries.append(summary)
-
-        summary = pd.concat(summaries)
-        summary.to_excel(Path(f'{out_dir}/SNT-behavior_n{summary.shape[0]}.xlsx'), index=False)
+        summary_df = pd.concat(sub_dfs)
+        summary_df.insert(0, 'sub_id', sub_ids)            
+        summary_df.to_excel(Path(f'{out_dir}/SNT-behavior_n{summary_df.shape[0]}.xlsx'), index=False)
 
 
 #------------------------------------------------------------------------------------------
