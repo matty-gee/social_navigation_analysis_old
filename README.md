@@ -2,22 +2,18 @@
 
 ## Installation
 
-### (1) Clone repository locally
+### Clone repository locally
 
 Download and unzip as a local directory
 
-### (2a) Set up a conda environment (recommended)
+### Set up a conda environment (recommended)
 
+Creating an enviornment will install all of the necessary python packages into a single environment that can be activated/deactivated as needed
 In terminal, navigate to the unzipped directory and run:
 
 ```bash
 conda env create -f env.yml # will create a conda environment called 'social_navigation_analysis'.... may take a minute 
 conda activate social_navigation_analysis # activates the environment, so have access to packages etc
-```
-
-### (2b) pip install (not recommended)
-```bash
-pip install --user --upgrade git+https://github.com/matty-gee/social_navigation_analysis.git
 ```
 
 ## Usage
