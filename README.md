@@ -4,11 +4,11 @@
 
 ### (1) Clone repository locally
 
-Download and unzip locally
+Download and unzip as a local directory
 
 ### (2a: recommended) Set up a conda environment
 
-From the directory you cloned: 
+In terminal, navigate to the unzipped directory and run:
 
 ```bash
 conda env create -f env.yml # will create a conda environment called 'social_navigation_analysis'.... may take a minute 
