@@ -20,8 +20,10 @@ pip install --user --upgrade git+https://github.com/matty-gee/social_navigation_
 
 ## Usage
 
-If cloned, add the directory into the system path
+If cloned, add the directory into the system path, e.g.: 
 ```python
+import os
+sys.path.insert(0, /path/to/social_navigation_analysis/social_navigation_analysis')
 ```
 
 ```python
