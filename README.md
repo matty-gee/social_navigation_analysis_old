@@ -4,9 +4,7 @@
 
 ### Clone repository locally [recommended]
 
-[TODO: add details on how to clone it]
-
-Suggested: set up a conda environment with dependencies already installed
+### Suggested: set up a conda environment with dependencies already installed
 
 From the directory you cloned: 
 ```bash
