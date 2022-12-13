@@ -6,7 +6,7 @@
 
 Download and unzip as a local directory
 
-### (2a: recommended) Set up a conda environment
+### (2a) Set up a conda environment (recommended)
 
 In terminal, navigate to the unzipped directory and run:
 
@@ -15,7 +15,7 @@ conda env create -f env.yml # will create a conda environment called 'social_nav
 conda activate social_navigation_analysis # activates the environment, so have access to packages etc
 ```
 
-### (2b: not recommended) pip install
+### (2b) pip install (not recommended)
 ```bash
 pip install --user --upgrade git+https://github.com/matty-gee/social_navigation_analysis.git
 ```
