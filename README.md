@@ -9,6 +9,7 @@ Download and unzip as a local directory
 ### Set up a conda environment (recommended)
 
 Creating an enviornment will install all of the necessary python packages into a single environment that can be activated/deactivated as needed
+
 In terminal, navigate to the unzipped directory and run:
 
 ```bash
