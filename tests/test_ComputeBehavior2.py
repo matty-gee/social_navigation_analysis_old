@@ -5,12 +5,13 @@ import numpy as np
 import pandas as pd
  
 # my modules
-sys.path.append(str(Path(f'{str(Path(__file__).parent.absolute())}/../social_navigation_analysis')))
-import preprocess as preprc
+curr_dir = str(Path(__file__).parent.absolute())
+sys.path.append(str(Path(f'{curr_dir}/../social_navigation_analysis')))
+from preprocess import ComputeBehavior2
 from test_utils import *
 
-test_subject_fname = '../data/example_files/snt_18001.xslx'
-
+# test_subject_fname = f'{curr_dir}/../data/example_files/snt_18001.xslx'
+test_subject_fname = '/Users/matty_gee/Dropbox/Projects/social_navigation_analysis/data/example_files/snt_18001.xlsx'
 # import unittest
 # sys.path.insert(0, f'{user}/Dropbox/Projects/social_navigation_analysis/tests')
 # from test_utils import *
@@ -162,8 +163,6 @@ class TestBehavior(unittest.TestCase):
         df = pd.DataFrame(np.hstack(coords))
         df.sort_values(by='trial_index', inplace=True)
 
-
-# unittest.main(argv=['first-arg-is-ignored'], exit=False)
-
+# if running in jupyter nb -> unittest.main(argv=['first-arg-is-ignored'], exit=False) 
 if __name__ == '__main__':
     unittest.main()

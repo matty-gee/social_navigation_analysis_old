@@ -27,7 +27,7 @@ pkg_dir = str(Path(__file__).parent.absolute())
 # parse snt logs, txts & csvs
 #------------------------------------------------------------------------------------------
 
-# - txt
+# - txts
 def format_txt_as_csv(txt_file, out_dir):
 
     ''' for converting the VTech txt files into csv files that CsvParser will recognize'''
@@ -165,6 +165,7 @@ def format_txt_as_csv(txt_file, out_dir):
     csv_df.to_csv(out_fname, index=False)
     
     return out_fname
+
 
 # - logs
 def parse_log(file_path, experimenter, output_timing=True, out_dir=None): 
@@ -402,6 +403,7 @@ class ParseCsv:
         replace_substrings['.'] = '_'
         replace_substrings['narrative'] = 'snt'
         replace_substrings['demographics'] = 'judgments'
+        replace_substrings['snt_judgments'] = 'judgments'
         replace_substrings['self_judgments'] = 'judgments'
         replace_substrings['relationship_feelings'] = 'character_relationship'
         for k,i in replace_substrings.items():
@@ -630,7 +632,7 @@ class ParseCsv:
             else:                           ratings = self.data[rating_cols].values.astype(int).reshape(1,-1)
             rating_cols  = [utils.remove_multiple_strings(c, ['judgments_','_resp']) for c in rating_cols]
             self.ratings = pd.DataFrame(ratings, index=[self.sub_id], columns=rating_cols)
-            rating_dims  = np.unique([c.split('_')[1] for c in rating_cols])
+            rating_dims  = np.unique([c.split('_')[1] for c in rating_cols]) 
             
         else:
             if self.verbose: print('There are no character/self ratings columns in the csv')
@@ -690,41 +692,75 @@ class ParseCsv:
 
     def process_trust_game(self):
 
+        #TODO: add share estimate task...
         if not utils.substring_in_strings('trust', self.data.columns):
             if self.verbose: print('There are no trust game columns in the csv')
             return 
         else:
             try: 
+                # trust ratings
                 pre_ratings = self.data[[c for c in self.data.columns if ('snt_trust_ratings_pre' in c) & ('resp' in c)]]
                 pre_ratings.columns = [f"{c.split('_')[4]}_trust_pre" for c in pre_ratings.columns]
 
                 post_ratings = self.data[[c for c in self.data.columns if ('snt_trust_ratings_post' in c) & ('resp' in c)]]
                 post_ratings.columns = [f"{c.split('_')[4]}_trust_post" for c in post_ratings.columns]
-
-                choices, cols = [], []
+                
+                # share decisions
+                data, cols = [], []
                 other, first, comp = 1, 1, 1
                 trust_partner = self.data['trust_partner'].values[0]
-                for round in range(1,9): 
-                    for trial in range(1,10):
-                        trial   = f'trust_game_round0{round}_trial0{trial}'
-                        
+                trust_cols    = [c for c in self.data.columns if ('trust_game_round' in c)]
+                n_rounds = len(np.unique([c.split('_')[2] for c in trust_cols]))
+                n_trials = len(np.unique([c.split('_')[3] for c in trust_cols]))
+                for round_ in range(1,n_rounds+1): 
+                    for trial in range(1,n_trials+1):
+                        trial   = f'trust_game_round{round_:02d}_trial{trial:02d}'
+
                         partner = self.data[f'{trial}_partner'].values[0]
-                        resp    = self.data[f'{trial}_choice'].values[0]
+                        choice  = self.data[f'{trial}_choice'].values[0]
                         rt      = self.data[f'{trial}_rt'].values[0]
-                        choices.append(resp)
+                        outcome = self.data[f'{trial}_outcome'].values[0]
                         
+                        data.append(choice)
+                        data.append(rt)
+                        data.append(outcome)
+
                         if partner.lower()==trust_partner.lower():
-                            cols.append(f'trust_round0{round}_other0{other}')
+                            cols.append(f'trust_round{round_:02d}_other0{other}_choice')
+                            cols.append(f'trust_round{round_:02d}_other0{other}_rt')
+                            cols.append(f'trust_round{round_:02d}_other0{other}_outcome')
                             other = other + 1
                         elif 'computer' in partner:
-                            cols.append(f'trust_round0{round}_computer0{comp}')
+                            cols.append(f'trust_round{round_:02d}_computer0{comp}_choice')
+                            cols.append(f'trust_round{round_:02d}_computer0{comp}_rt')
+                            cols.append(f'trust_round{round_:02d}_computer0{comp}_outcome')
                             comp = comp + 1
                         else:
-                            cols.append(f'trust_round0{round}_first0{first}')
+                            cols.append(f'trust_round{round_:02d}_first0{first}_choice')
+                            cols.append(f'trust_round{round_:02d}_first0{first}_rt')
+                            cols.append(f'trust_round{round_:02d}_first0{first}_outcome')
                             first = first + 1
 
-                trust_game = pd.DataFrame(np.array(choices)[np.newaxis], columns=cols)
+                trust_game = pd.DataFrame(np.array(data)[np.newaxis], columns=cols)
                 self.trust = pd.concat([pre_ratings, trust_game, post_ratings], axis=1)
+                self.trust.insert(0, 'trust_game_bonus_amount', self.data['trust_game_bonus_amount'].values[0])
+                
+                # share estimate task
+                est_cols = [c for c in self.data.columns if 'estimate' in c] # chck if cols
+                if len(est_cols) > 0: 
+                    est_data = []
+                    for partner in ['first', 'computer']:
+                        part_cols = [c for c in est_cols if partner in c]
+                        rt   = self.data[[c for c in part_cols if 'rt' in c]].values[0][0]
+                        resp = self.data[[c for c in part_cols if 'resp' in c]].values[0][0]
+                        est_data.extend([rt, resp])
+                        
+                    est_data = pd.DataFrame(np.array(est_data)[np.newaxis], columns=['share_estimate_rt_first', 'share_estimate_first', 
+                                                                                     'share_estimate_rt_computer', 'share_estimate_computer'])
+                    
+                    # merge it all
+                    self.trust = pd.concat([self.trust, est_data], axis=1)
+                    
                 self.trust.index = [self.sub_id]
                 return self.trust
             except:
@@ -733,7 +769,7 @@ class ParseCsv:
     def process_realworld(self):
 
         if not utils.substring_in_strings('realworld_relationships', self.data.columns):
-            if self.verbose: print('There are no realworldrelationships columns in the csv')   
+            if self.verbose: print('There are no realworld relationships columns in the csv')   
             return 
         else:
             network_div, network_num, relationships, people = [], [], [], []
@@ -796,27 +832,6 @@ class ParseCsv:
             self.relationships = pd.concat([sni_df, realworld_df], axis=1)
             self.relationships.index = [self.sub_id]
             return self.relationships
-
-    def process_iq(self):
-        
-        if not utils.substring_in_strings('iq_MX47', self.data.columns):
-            if self.verbose: print('There are no iq columns in the csv')   
-            return 
-        else:
-            iq_ques = [q.split('.')[1] for q in [c for c in self.data.columns if ('iq' in c) & ('resp' in c)]]
-            iq_resp = data[[c for c in self.data.columns if ('iq' in c) & ('resp' in c)]].values[0]
-            answers =  [["VR4",5],["VR16","Its"],["VR17",47],["VR19","Sunday"],
-                        ["LN7","X"],["LN33","G"],["LN34","X"],["LN58","N"],
-                        ["MX45","E"],["MX46","B"],["MX47","B"],["MX55","D"],
-                        ["R3D3","C"],["R3D4","B"],["R3D6","F"],["R3D8","G"]]
-            iq_correct = np.zeros(len(answers))
-            for answer in answers: 
-                for (q,ques), resp in zip(enumerate(iq_ques), iq_resp):
-                    if (ques == answer[0]) & (resp == answer[1]):
-                        iq_correct[q] = 1
-            self.iq = pd.DataFrame(np.mean(iq_correct)[np.newaxis], columns=['iq_score'])
-            self.iq.index = [self.sub_id]
-            return self.iq
         
     def process_free_response(self):
 
@@ -857,6 +872,35 @@ class ParseCsv:
             self.questions.index = [self.sub_id]
             return self.questions
 
+    def process_iq(self):
+        
+        if (not utils.substring_in_strings('iq_mx47', self.data.columns)) and (not utils.substring_in_strings('iq', self.data.columns)):
+            if self.verbose: print('There are no iq columns in the csv')   
+            return 
+        else:
+            if utils.substring_in_strings('iq_mx47', self.data.columns): # newer
+                iq_ques = [q.split('_')[1] for q in [c for c in self.data.columns if ('iq' in c) & ('resp' in c)]]
+                iq_resp = self.data[[c for c in self.data.columns if ('iq' in c) & ('resp' in c)]].values[0]
+                iq_ques = [q.lower() for q in iq_ques]
+                iq_resp = [r.lower() for r in iq_resp]
+            elif utils.substring_in_strings('iq', self.data.columns):
+                iqs = self.data['iq'].values[0].split('","')
+                iq_ques = [re.sub(r'[["]', "", iq.split(';')[0]) for iq in iqs]
+                iq_resp = [iq.split(';')[1].split('resp:')[1] for iq in iqs]
+            
+            answers =  [["vr4",'5'],["vr16","its"],["vr17",'47'],["vr19","sunday"],
+                        ["ln7","x"],["ln33","g"],["ln34","x"],["ln58","n"],
+                        ["mx45","e"],["mx46","b"],["mx47","b"],["mx55","d"],
+                        ["r3d3","c"],["r3d4","b"],["r3d6","f"],["r3d8","g"]]
+            iq_correct = np.zeros(len(answers))
+            for answer in answers: 
+                for (q,ques), resp in zip(enumerate(iq_ques), iq_resp):
+                    if (ques == answer[0]) & (resp == str(answer[1])):
+                        iq_correct[q] = 1
+            self.iq = pd.DataFrame(np.mean(iq_correct)[np.newaxis], columns=['iq_score'])
+            self.iq.index = [self.sub_id]
+            return self.iq
+        
 
 # - convenience function
 def parse_csv(file_path, snt_version='standard', verbose=0, out_dir=None):
@@ -1470,7 +1514,7 @@ class ComputeBehavior2:
                  "decision_types", "weight_types", "coord_types",  
                  "demean_coords", "out"] # assign to optimize memory
 
-    def __init__(self, file, decision_types=False, weight_types=False, coord_types=False, demean_coords=False):
+    def __init__(self, file=None, decision_types=False, weight_types=False, coord_types=False, demean_coords=False):
         '''
             Class to compute behavioral geometry
 
@@ -1816,9 +1860,9 @@ class ComputeBehavior2:
         '''
         try: 
             convexhull = ConvexHull(coords) 
-            return np.array([convexhull.area , convexhull.volume], dtype=float_dtype)
+            return np.array([convexhull.area , convexhull.volume], dtype=float_dtype) 
         except:
-            return np.array([np.nan,np.nan], dtype=float_dtype)
+            return np.array([np.nan, np.nan], dtype=float_dtype)
 
     @staticmethod
     def calc_quadrant_overlap(coords, float_dtype="float32"):
@@ -1911,14 +1955,20 @@ class ComputeBehavior2:
         compute_it = ComputeBehavior2
 
         # 2d
-        size     = cumulative(compute_it.calc_shape_size)(coords)
-        size_pov = cumulative(compute_it.calc_shape_size)(np.vstack([np.array([6,0]), coords])) # include pov, then drop it to make length correct
-        overlap  = cumulative(compute_it.calc_quadrant_overlap)(coords)
-        shape_measures = rfn.unstructured_to_structured(np.hstack([size, size_pov[1:], overlap]), 
-                                                        np.dtype([(f'perimeter', float_dtype),     (f'area', float_dtype), 
-                                                                  (f'pov_perimeter', float_dtype), (f'pov_area', float_dtype), 
-                                                                  (f'Q1_overlap', float_dtype),    (f'Q2_overlap', float_dtype),
-                                                                  (f'Q3_overlap', float_dtype),    (f'Q4_overlap', float_dtype)]))
+        if coords.shape[1] == 2:
+            size     = cumulative(compute_it.calc_shape_size)(coords)
+            size_pov = cumulative(compute_it.calc_shape_size)(np.vstack([np.array([6,0]), coords])) # include pov, then drop it to make length correct
+            overlap  = cumulative(compute_it.calc_quadrant_overlap)(coords)
+            shape_measures = rfn.unstructured_to_structured(np.hstack([size, size_pov[1:], overlap]), 
+                                                            np.dtype([('perimeter', float_dtype),     ('area', float_dtype), 
+                                                                      ('pov_perimeter', float_dtype), ('pov_area', float_dtype), 
+                                                                      ('Q1_overlap', float_dtype),    ('Q2_overlap', float_dtype),
+                                                                      ('Q3_overlap', float_dtype),    ('Q4_overlap', float_dtype)]))
+        # 3d
+        elif coords.shape[1] == 3:
+            size = cumulative(compute_it.calc_shape_size)(coords)
+            shape_measures = rfn.unstructured_to_structured(size, np.dtype([('surface_area', float_dtype), ('volume', float_dtype)]))
+            
         return shape_measures
  
 
@@ -1927,7 +1977,7 @@ class ComputeBehavior2:
 
         # aliases
         unstructure = rfn.structured_to_unstructured
-        compute_it = ComputeBehavior2
+        compute_it  = ComputeBehavior2
  
         # get the labels
         if labels is None:        labels = np.ones(len(self.data)) # 1 trajectory
@@ -1961,9 +2011,18 @@ class ComputeBehavior2:
             out_df.reset_index(drop=True, inplace=True) # IMPORTANT!
             
             # calculate shape of overall space
-            all_coords    = out_df[['affil_coord','power_coord']].values
-            shape_metrics = pd.DataFrame(compute_it.calc_shape(all_coords, float_dtype=float_dtype))
 
+            # - 2d shape
+            all_coords       = out_df[['affil_coord','power_coord']].values
+            shape_metrics_2d = pd.DataFrame(compute_it.calc_shape(all_coords, float_dtype=float_dtype))
+
+            # - 3d shape
+            all_coords       = out_df[['affil_coord','power_coord']].values
+            all_coords_3d    = np.hstack([all_coords, self.data['char_decision_num'].values[:,np.newaxis]])
+            shape_metrics_3d = pd.DataFrame(compute_it.calc_shape(all_coords_3d, float_dtype=float_dtype))
+            
+            shape_metrics = pd.concat([shape_metrics_2d, shape_metrics_3d], axis=1)
+            
             # calculate cumulative means across all trials
             cum_mean = compute_it.calc_cumulative_mean
             cols = out_df.columns
@@ -1979,6 +2038,8 @@ class ComputeBehavior2:
             task = self.data[['decision_num', 'dimension', 'scene_num', 'char_role_num', 'char_decision_num']]
             df = pd.concat([task, out_df, shape_metrics], axis=1)
             df.reset_index(drop=True, inplace=True)
+            
+            df.insert(6, 'reaction_time', self.data['reaction_time'].values) # useful
             del df['trial_index']
             if len(types) > 1: self.out[f'{dt}_{wt}_{ct}'] = df
             else:              self.out = df
@@ -2008,7 +2069,9 @@ def compute_behavior(file_path, weight_types=False, decision_types=False, coord_
 
 
 def summarize_behavior(file_paths, out_dir=None):
+    '''
     
+    '''
     # out directory
     if out_dir is None: out_dir = os.getcwd()
     if not os.path.exists(out_dir): os.mkdir(out_dir)
@@ -2026,16 +2089,20 @@ def summarize_behavior(file_paths, out_dir=None):
 
             values, cols = [], []
 
-            # the last value of column
-            last_value = ['perimeter', 'area', 'pov_perimeter', 'pov_area', 'Q1_overlap', 'Q2_overlap', 'Q3_overlap', 'Q4_overlap']
+            # (1) end value: get the last value of column
+            last_value = ['perimeter', 'area', 'pov_perimeter', 'pov_area', 
+                          'Q1_overlap', 'Q2_overlap', 'Q3_overlap', 'Q4_overlap', 
+                          'surface_area', 'volume']
             for col in last_value: 
                 values.append(behav[col].values[-1])
                 cols.append(col)
 
-            # the last values for each character and then their mean
+            # (2) mean value across characters: the last values for each character and then their mean
             character_roles = ['first', 'second', 'assistant', 'powerful', 'boss']
-            by_character = ['affil_mean', 'power_mean',
-                            'affil_centroid', 'power_centroid', 'neu_dist', 'neu_dist_mean',
+            by_character = ['reaction_time', 'affil_mean', 'power_mean',
+                            'affil_centroid', 'power_centroid', 
+                            'affil_consistency', 'power_consistency', 'consistency',
+                            'neu_dist', 'neu_dist_mean',
                             'neu_2d_angle', 'neu_2d_angle_mean', 'neu_3d_angle',
                             'neu_3d_angle_mean', 'pov_dist', 'pov_dist_mean', 'pov_2d_angle',
                             'pov_2d_angle_mean', 'pov_3d_angle', 'pov_3d_angle_mean']
@@ -2048,11 +2115,13 @@ def summarize_behavior(file_paths, out_dir=None):
                 values.extend([mean_val])
                 cols.extend([f'{col}_{role}' for role in character_roles] + [f'{col}_mean'])
 
+            # add in the raw coordinates
             values.extend([behav[behav['char_role_num'] == char]['affil_coord'].values[-1] for char in range(1,6)])
             cols.extend([f'affil_coord_{role}' for role in character_roles])
             values.extend([behav[behav['char_role_num'] == char]['power_coord'].values[-1] for char in range(1,6)])
             cols.extend([f'power_coord_{role}' for role in character_roles])
             
+            # add in the raw decisions
             sub_df = pd.DataFrame(np.array(values)[np.newaxis], columns=cols)
             sub_df.loc[0, [f'decision_{d:02d}' for d in range(1,64)]] = np.sum(behav[['affil_decision', 'power_decision']], axis=1).values
 
