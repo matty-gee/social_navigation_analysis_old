@@ -22,15 +22,18 @@ pip install --user --upgrade git+https://github.com/matty-gee/social_navigation_
 
 ## Usage
 
-If cloned, add the directory with the cloned repository into the system path so your python can find the module, e.g.: 
+If cloned, add the directory with the cloned repository into the system path, e.g.: 
 
 ```python
 # add directory into python system path
 import sys
 sys.path.insert(0, /path/to/social_navigation_analysis/social_navigation_analysis')
-# then import 
-import social_navigation_analysis as snt
+```
 
+Then, if pip or cloned, import the module 
+
+```python
+import social_navigation_analysis as snt
 ```
 
 ## Functions
