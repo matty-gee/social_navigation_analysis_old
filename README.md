@@ -1,32 +1,32 @@
-# Social Navigation Task usgae notes
+# Social Navigation Task usage notes
 
 ## Installation
 
 ### Clone repository locally
 
-### Set up a conda environment [recommended]
+### (a) Set up a conda environment [recommended]
 
 From the directory you cloned: 
 
 ```bash
-conda env create -f env.yml # will create a conda env called 'social_navigation_analysis'
-conda activate social_navigation_analysis # activates env
+conda env create -f env.yml # will create a conda environment called 'social_navigation_analysis'.... may take a minute 
+conda activate social_navigation_analysis # activates the environment, so have access to packages etc
 ```
 
-### pip install [not recommended]
+### (b) pip install [not recommended]
 ```bash
 pip install --user --upgrade git+https://github.com/matty-gee/social_navigation_analysis.git
 ```
 
 ## Usage
 
-If cloned, add the directory into the system path, e.g.: 
-```python
-import os
-sys.path.insert(0, /path/to/social_navigation_analysis/social_navigation_analysis')
-```
+If cloned, add the directory with the cloned repository into the system path so your python can find the module, e.g.: 
 
 ```python
+# add directory into python system path
+import sys
+sys.path.insert(0, /path/to/social_navigation_analysis/social_navigation_analysis')
+# then import 
 import social_navigation_analysis as snt
 
 ```
