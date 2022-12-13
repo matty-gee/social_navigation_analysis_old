@@ -1,4 +1,4 @@
-# Information & preprocessing for the Social Navigation Task
+# Social Navigation Task usgae notes
 
 ## Installation
 
