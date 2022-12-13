@@ -4,16 +4,16 @@
 
 ### Clone repository locally
 
-### Set up a conda environment with dependencies already installed [recommended]
+### Set up a conda environment [recommended]
 
 From the directory you cloned: 
+
 ```bash
 conda env create -f env.yml # will create a conda env called 'social_navigation_analysis'
 conda activate social_navigation_analysis # activates env
 ```
-[TODO] Otherwise, install the packages manually from requirements.txt
 
-### pip install
+### pip install [not recommended]
 ```bash
 pip install --user --upgrade git+https://github.com/matty-gee/social_navigation_analysis.git
 ```
